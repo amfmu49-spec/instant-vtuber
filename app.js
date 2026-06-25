@@ -122,8 +122,8 @@ function App() {
                 </div>
                 <div class="status-bar">
                     <div class="status-indicator">
-                        <span class="status-dot ${trackingStatus === 'tracking' ? 'active' : trackingStatus === 'loading' ? 'loading' : ''}"></span>
-                        <span>${trackingStatus === 'tracking' ? 'トラッキング中' : trackingStatus === 'loading' ? '初期化中...' : 'Webカメラ待機中'}</span>
+                        <span class="status-dot ${trackingStatus === 'tracking' ? 'active' : trackingStatus === 'loading' ? 'loading' : trackingStatus === 'error' ? 'error' : ''}"></span>
+                        <span>${trackingStatus === 'tracking' ? 'トラッキング中' : trackingStatus === 'loading' ? '初期化中...' : trackingStatus === 'error' ? 'エラー: カメラが見つからないか許可されていません' : 'Webカメラ待機中'}</span>
                     </div>
                 </div>
             </header>
