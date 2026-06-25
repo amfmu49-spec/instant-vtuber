@@ -554,7 +554,6 @@ function App() {
             </div>
         </div>
     `;
-    `;
 }
 
 // ══════════════ UPLOAD ZONE ══════════════
