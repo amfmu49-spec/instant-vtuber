@@ -203,9 +203,13 @@ function CameraTracker({ camState, setCam, aiState, setAI, useAudio, trackRef, s
     const lmRef     = useRef();
     const emaRef    = useRef({roll:0,yaw:0,pitch:0,bL:0,bR:0,mo:0});
     const audioR    = useRef({ctx:null,analyser:null,stream:null});
+    // mountedRef survives all state changes — only false after component unmounts
+    const mountedRef = useRef(true);
 
-    // Cleanup on unmount
-    useEffect(()=>()=>{ stopAll(); }, []);
+    useEffect(()=>{
+        mountedRef.current = true;
+        return ()=>{ mountedRef.current = false; stopAll(); };
+    }, []);
 
     const stopAll = () => {
         cancelAnimationFrame(rafRef.current);
@@ -245,48 +249,64 @@ function CameraTracker({ camState, setCam, aiState, setAI, useAudio, trackRef, s
         return ()=>{ alive=false; cancelAnimationFrame(rafRef.current); audioR.current.ctx?.close(); audioR.current.stream?.getTracks().forEach(t=>t.stop()); };
     },[useAudio]);
 
-    // ── Camera start (triggered by camState='start') ──
+    // ── Camera start: watch for 'start', run async without killing via effect cleanup ──
     useEffect(()=>{
         if(camState!=='start') return;
-        let alive=true;
-        setCam('loading');
-        (async()=>{
-            try {
-                const stream = await navigator.mediaDevices.getUserMedia({video:{facingMode:'user',width:{ideal:640},height:{ideal:480}}});
-                if(!alive){stream.getTracks().forEach(t=>t.stop());return;}
-                streamRef.current = stream;
-                videoRef.current.srcObject = stream;
-                await videoRef.current.play();
-                setCam('active');
-
-                // Try MediaPipe in background — does NOT block camera display
-                loadMP(alive);
-            } catch(e){
-                console.error('Camera error:',e);
-                if(alive) setCam('error');
-            }
-        })();
-        return ()=>{ alive=false; };
+        // Fire-and-forget: don't return a cleanup that sets alive=false.
+        // mountedRef handles component unmount safety instead.
+        doStartCamera();
     // eslint-disable-next-line
     },[camState]);
 
-    const loadMP = async (alive) => {
+    const doStartCamera = async () => {
+        setCam('loading');
+        try {
+            const stream = await navigator.mediaDevices.getUserMedia({
+                video: { facingMode:'user', width:{ideal:640}, height:{ideal:480} }
+            });
+            if(!mountedRef.current){ stream.getTracks().forEach(t=>t.stop()); return; }
+            streamRef.current = stream;
+
+            const vid = videoRef.current;
+            vid.srcObject = stream;
+
+            // Use loadedmetadata event instead of await play() to avoid iOS hang
+            await new Promise((resolve) => {
+                vid.onloadedmetadata = () => {
+                    vid.play().then(resolve).catch(resolve);
+                };
+                // Fallback: if metadata never fires, resolve after 4s
+                setTimeout(resolve, 4000);
+            });
+
+            if(!mountedRef.current) return;
+            setCam('active');
+            doLoadMP(); // load MediaPipe in background
+        } catch(e){
+            console.error('Camera error:',e);
+            if(mountedRef.current) setCam('error');
+        }
+    };
+
+    const doLoadMP = async () => {
         setAI('loading');
         try {
             const {FaceLandmarker,FilesetResolver} = await import(MP_BUNDLE);
+            if(!mountedRef.current) return;
             const vfs = await FilesetResolver.forVisionTasks(MP_WASM);
+            if(!mountedRef.current) return;
             const lm  = await FaceLandmarker.createFromOptions(vfs, {
                 baseOptions:{modelAssetPath:MP_MODEL},
                 runningMode:'VIDEO', outputFaceBlendshapes:true, numFaces:1
             });
-            if(!alive){lm.close();return;}
+            if(!mountedRef.current){ lm.close(); return; }
             lmRef.current = lm;
             setAI('ready');
             cancelAnimationFrame(rafRef.current);
             runFaceLoop();
         } catch(e) {
             console.warn('MediaPipe failed, using pixel-diff fallback:',e);
-            if(alive){ setAI('fail'); cancelAnimationFrame(rafRef.current); runPixelLoop(); }
+            if(mountedRef.current){ setAI('fail'); cancelAnimationFrame(rafRef.current); runPixelLoop(); }
         }
     };
 
