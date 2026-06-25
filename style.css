@@ -65,75 +65,150 @@ body::before {
 
 /* Main Layout Structure */
 .app-container {
-    width: 100%;
-    max-width: 1600px;
-    margin: 0 auto;
-    padding: 24px;
-    min-height: 100vh;
-    display: flex;
-    flex-direction: column;
-    gap: 20px;
+    width: 100vw;
+    height: 100vh;
+    margin: 0;
+    padding: 0;
+    overflow: hidden;
+    position: relative;
 }
 
-/* Header Stylings */
-header {
+/* Floating Controls & Status */
+.floating-menu-btn {
+    position: absolute;
+    top: 16px;
+    right: 16px;
+    width: 46px;
+    height: 46px;
+    border-radius: 50%;
+    background: rgba(15, 23, 42, 0.7);
+    backdrop-filter: blur(8px);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    color: var(--text-main);
+    font-size: 22px;
     display: flex;
-    justify-content: space-between;
     align-items: center;
-    padding: 16px 24px;
-    background: var(--bg-card);
-    backdrop-filter: var(--glass-blur);
-    border: 1px solid var(--border-color);
-    border-radius: 16px;
-    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+    justify-content: center;
+    cursor: pointer;
+    z-index: 100;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+    transition: var(--transition-smooth);
 }
 
-.logo-section h1 {
-    font-family: 'Outfit', sans-serif;
-    font-size: 24px;
-    font-weight: 800;
-    background: linear-gradient(135deg, #818cf8, #c084fc, #22d3ee);
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-    letter-spacing: -0.5px;
+.floating-menu-btn:hover {
+    transform: scale(1.08) rotate(30deg);
+    background: rgba(99, 102, 241, 0.8);
+    border-color: rgba(99, 102, 241, 0.5);
+    box-shadow: 0 0 15px rgba(99, 102, 241, 0.4);
+}
+
+.floating-status {
+    position: absolute;
+    top: 16px;
+    left: 16px;
+    background: rgba(15, 23, 42, 0.7);
+    backdrop-filter: blur(8px);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    padding: 8px 14px;
+    border-radius: 20px;
     display: flex;
     align-items: center;
     gap: 8px;
+    z-index: 90;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
 }
 
-.logo-section p {
-    font-size: 12px;
+/* Settings Modal Overlay */
+.modal-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    background: rgba(11, 15, 25, 0.4);
+    backdrop-filter: blur(4px);
+    z-index: 200;
+    display: flex;
+    justify-content: flex-end;
+}
+
+.modal-content {
+    width: 420px;
+    height: 100%;
+    background: rgba(15, 23, 42, 0.85);
+    backdrop-filter: blur(16px);
+    border-left: 1px solid var(--border-color);
+    box-shadow: -8px 0 32px rgba(0, 0, 0, 0.5);
+    padding: 24px;
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+    overflow-y: auto;
+    animation: slideIn 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+@keyframes slideIn {
+    from { transform: translateX(100%); }
+    to { transform: translateX(0); }
+}
+
+.modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border-bottom: 1px solid var(--border-color);
+    padding-bottom: 14px;
+    margin-bottom: 10px;
+}
+
+.modal-header h2 {
+    font-family: 'Outfit', sans-serif;
+    font-size: 18px;
+    font-weight: 700;
+    color: var(--text-main);
+    border-bottom: none;
+    margin-bottom: 0;
+    padding-bottom: 0;
+}
+
+.modal-close-btn {
+    background: transparent;
+    border: none;
     color: var(--text-muted);
-    margin-top: 2px;
+    font-size: 20px;
+    cursor: pointer;
+    transition: var(--transition-smooth);
+    padding: 4px 8px;
+    border-radius: 4px;
+}
+
+.modal-close-btn:hover {
+    color: var(--text-main);
+    background: rgba(255, 255, 255, 0.08);
 }
 
 /* Main content workspace */
-.workspace {
-    display: grid;
-    grid-template-columns: 1fr 400px;
-    gap: 20px;
-    flex: 1;
-}
-
-@media (max-width: 1100px) {
-    .workspace {
-        grid-template-columns: 1fr;
-    }
+.workspace.full-screen {
+    width: 100%;
+    height: 100%;
+    margin: 0;
+    padding: 0;
+    display: block;
 }
 
 /* Left panel: Avatar rendering and webcam overlay */
-.avatar-view {
+.avatar-view.full-viewport {
     position: relative;
     background: var(--bg-card);
-    backdrop-filter: var(--glass-blur);
-    border: 1px solid var(--border-color);
-    border-radius: 20px;
+    width: 100%;
+    height: 100%;
     overflow: hidden;
     display: flex;
     justify-content: center;
     align-items: center;
-    min-height: 600px;
-    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.4);
+    box-shadow: none;
+    border-radius: 0;
+    border: none;
 }
 
 #canvas-container {
