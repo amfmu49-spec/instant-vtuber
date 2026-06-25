@@ -386,9 +386,8 @@ function App() {
                         charFaceRef=${charFaceRef}
                     />
 
-                    <!-- Hidden video: only for camera stream input, never visible -->
                     <video ref=${videoRef} playsinline muted
-                        style=${{position:'absolute',opacity:0,pointerEvents:'none',width:'1px',height:'1px',top:0,left:0}}>
+                        style=${{position:'absolute',opacity:0,pointerEvents:'none',width:'1px',height:'1px',top:'-9999px',left:'-9999px'}}>
                     </video>
 
                     <!-- PiP: shows face MESH ONLY (no camera image) -->
