@@ -5,6 +5,7 @@ const { useState, useEffect, useRef, useCallback } = React;
 
 // MediaPipe Model paths and configurations
 const LANDMARKER_MODEL_URL = "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task";
+const VISION_BUNDLE_URL = "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.8/vision_bundle.mjs";
 const WASM_RESOLVER_URL = "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.8/wasm";
 
 // Preset configurations
@@ -456,7 +457,7 @@ function WebcamTracker({ useWebcam, useAudio, settings, currentFrameDataRef, set
 
         async function initMediaPipe() {
             try {
-                const { FaceLandmarker, FilesetResolver } = await import(WASM_RESOLVER_URL + "/vision_bundle.mjs");
+                const { FaceLandmarker, FilesetResolver } = await import(VISION_BUNDLE_URL);
                 const filesetResolver = await FilesetResolver.forVisionTasks(WASM_RESOLVER_URL);
                 
                 const landmarker = await FaceLandmarker.createFromOptions(filesetResolver, {
@@ -674,7 +675,6 @@ function AvatarCanvas({ avatarUrl, currentFrameDataRef, calibrationRef, settings
             
             // 1. Load image and extract width/height
             const img = new Image();
-            img.crossOrigin = "anonymous";
             img.src = imageUrl;
             await new Promise((resolve, reject) => {
                 img.onload = resolve;
@@ -685,7 +685,7 @@ function AvatarCanvas({ avatarUrl, currentFrameDataRef, calibrationRef, settings
             sourceDataRef.current.aspectRatio = aspect;
 
             // 2. Initialize temporary FaceLandmarker for static image detection
-            const { FaceLandmarker, FilesetResolver } = await import(WASM_RESOLVER_URL + "/vision_bundle.mjs");
+            const { FaceLandmarker, FilesetResolver } = await import(VISION_BUNDLE_URL);
             const filesetResolver = await FilesetResolver.forVisionTasks(WASM_RESOLVER_URL);
             const landmarker = await FaceLandmarker.createFromOptions(filesetResolver, {
                 baseOptions: { modelAssetPath: LANDMARKER_MODEL_URL },
