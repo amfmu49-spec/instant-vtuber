@@ -149,6 +149,20 @@ const MainScreen: React.FC = () => {
     psdLayersRef.current = psdLayers;
   }, [avatarCoords, sensitivity, customSkinColors, partScales, psdLayers]);
 
+  // Ensure default coordinates are set if null (specifically for 3x3 grid mode to enable tuning panel)
+  useEffect(() => {
+    if (baseImage && avatarCoords) {
+      if (!avatarCoords.leftEye || !avatarCoords.rightEye || !avatarCoords.mouth) {
+        setAvatarCoords({
+          ...avatarCoords,
+          leftEye: avatarCoords.leftEye || { x: 0.35, y: 0.45, width: 0.1, height: 0.08 },
+          rightEye: avatarCoords.rightEye || { x: 0.65, y: 0.45, width: 0.1, height: 0.08 },
+          mouth: avatarCoords.mouth || { x: 0.5, y: 0.65, width: 0.12, height: 0.08 }
+        });
+      }
+    }
+  }, [baseImage, avatarCoords, setAvatarCoords]);
+
   useEffect(() => {
     isSpeakingRef.current = isSpeaking;
   }, [isSpeaking]);
@@ -484,9 +498,12 @@ const MainScreen: React.FC = () => {
 
     const drawBaseImageOnly = () => {
       if (!canvas || !ctx) return;
-      if (canvas.width !== img.width || canvas.height !== img.height) {
-        canvas.width = img.width;
-        canvas.height = img.height;
+      const isGrid = !!originalGridImage;
+      const targetW = isGrid ? img.width / 3 : img.width;
+      const targetH = isGrid ? img.height / 3 : img.height;
+      if (canvas.width !== targetW || canvas.height !== targetH) {
+        canvas.width = targetW;
+        canvas.height = targetH;
       }
       ctx.clearRect(0, 0, canvas.width, canvas.height);
       const layers = psdLayersRef.current;
@@ -615,9 +632,12 @@ const MainScreen: React.FC = () => {
     const drawAvatar = (results: any) => {
       if (!canvas || !ctx) return;
       
-      if (canvas.width !== img.width || canvas.height !== img.height) {
-        canvas.width = img.width;
-        canvas.height = img.height;
+      const isGrid = !!originalGridImage;
+      const targetW = isGrid ? img.width / 3 : img.width;
+      const targetH = isGrid ? img.height / 3 : img.height;
+      if (canvas.width !== targetW || canvas.height !== targetH) {
+        canvas.width = targetW;
+        canvas.height = targetH;
       }
 
       const cw = canvas.width;
@@ -1083,7 +1103,7 @@ const MainScreen: React.FC = () => {
 
 
       {/* 選択中パーツのスケール・色調整パネル */}
-      {showTools && selectedPart && avatarCoords?.[selectedPart] && !isDragging && (
+      {showTools && selectedPart && avatarCoords && avatarCoords[selectedPart] && !isDragging && (
         <div
           onClick={(e) => e.stopPropagation()}
           style={{
