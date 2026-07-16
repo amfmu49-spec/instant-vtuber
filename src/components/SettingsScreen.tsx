@@ -566,7 +566,7 @@ const SettingsScreen: React.FC = () => {
           </div>
         )}
 
-        {baseImage && !originalGridImage && (
+        {baseImage && (
           <div style={{ marginTop: '0.75rem' }}>
             <button
               type="button"
