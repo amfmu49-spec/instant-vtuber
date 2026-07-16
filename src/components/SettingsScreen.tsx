@@ -4,13 +4,15 @@ import { useAppContext } from '../store/AppContext';
 import { Camera, Upload, Key, Settings, Play, Sparkles } from 'lucide-react';
 import { analyzeAvatarImage, generateCharacterImage, generateFreeCharacterImage } from '../services/geminiService';
 import { readPsd } from 'ag-psd';
-import { splitImageIntoHeadAndBody } from '../utils/avatarHelper';
+import { splitImageIntoHeadAndBody, parseGridSheet } from '../utils/avatarHelper';
+import { FilesetResolver, FaceLandmarker } from '@mediapipe/tasks-vision';
 import type { PsdLayerData } from '../store/AppContext';
 
 const SettingsScreen: React.FC = () => {
   const { 
     geminiApiKey, setGeminiApiKey, 
     baseImage, setBaseImage, 
+    originalGridImage, setOriginalGridImage,
     avatarCoords, setAvatarCoords,
     sensitivity, setSensitivity,
     customSkinColors, setCustomSkinColors,
@@ -32,9 +34,11 @@ const SettingsScreen: React.FC = () => {
   const [aiPrompt, setAiPrompt] = useState<string>('');
   const [isGenerating, setIsGenerating] = useState<boolean>(false);
   const [neckY, setNeckY] = useState<number>(55);
+  const [neckX, setNeckX] = useState<number>(50);
   const [removeWhiteBg, setRemoveWhiteBg] = useState<boolean>(true);
   const [imageGeneratorEngine, setImageGeneratorEngine] = useState<'free' | 'gemini'>('free');
   const [generateGridSheet, setGenerateGridSheet] = useState<boolean>(false);
+  const [isProcessingGrid, setIsProcessingGrid] = useState<boolean>(false);
 
   // デフォルトプロファイルが読み込まれたら自動的にメイン画面へ遷移する（1セッションに1回のみ）
   useEffect(() => {
@@ -46,13 +50,104 @@ const SettingsScreen: React.FC = () => {
 
   // プロファイルロード時にスライダー座標を同期
   useEffect(() => {
-    if (avatarCoords && avatarCoords.neckY !== undefined) {
-      setNeckY(avatarCoords.neckY);
+    if (avatarCoords) {
+      if (avatarCoords.neckY !== undefined) {
+        setNeckY(avatarCoords.neckY);
+      }
+      if (avatarCoords.neckX !== undefined) {
+        setNeckX(avatarCoords.neckX);
+      }
       if (avatarCoords.removeWhiteBg !== undefined) {
         setRemoveWhiteBg(avatarCoords.removeWhiteBg);
       }
     }
   }, [avatarCoords]);
+
+  useEffect(() => {
+    if (!baseImage || isProcessingGrid) return;
+    if (originalGridImage && baseImage !== originalGridImage) return;
+
+    const checkGridSheet = async () => {
+      const img = new Image();
+      img.src = baseImage;
+      await new Promise(resolve => { img.onload = resolve; });
+
+      try {
+        setIsProcessingGrid(true);
+        const vision = await FilesetResolver.forVisionTasks(
+          'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest/wasm'
+        );
+        const tempLandmarker = await FaceLandmarker.createFromOptions(vision, {
+          baseOptions: {
+            modelAssetPath: 'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task',
+            delegate: 'GPU'
+          },
+          runningMode: 'IMAGE',
+          numFaces: 4
+        });
+
+        try {
+          const results = tempLandmarker.detect(img);
+          if (results && results.faceLandmarks && results.faceLandmarks.length >= 2) {
+            console.log("SettingsScreen: Grid sheet detected. Processing...");
+            const parsed = parseGridSheet(img, results.faceLandmarks);
+            if (parsed) {
+              // Save original grid in context
+              setOriginalGridImage(baseImage);
+
+              // Crop base face
+              const baseFaceCanvas = document.createElement('canvas');
+              baseFaceCanvas.width = parsed.baseFaceQuad.width;
+              baseFaceCanvas.height = parsed.baseFaceQuad.height;
+              const baseFaceCtx = baseFaceCanvas.getContext('2d');
+              if (baseFaceCtx) {
+                baseFaceCtx.drawImage(img, parsed.baseFaceQuad.left, parsed.baseFaceQuad.top, parsed.baseFaceQuad.width, parsed.baseFaceQuad.height, 0, 0, parsed.baseFaceQuad.width, parsed.baseFaceQuad.height);
+              }
+
+              // Update coordinates dynamically so they align to the cropped face
+              const newCoords = {
+                leftEye: {
+                  x: parsed.baseLeftEyeRect.left / parsed.baseFaceQuad.width,
+                  y: parsed.baseLeftEyeRect.top / parsed.baseFaceQuad.height,
+                  width: parsed.baseLeftEyeRect.width / parsed.baseFaceQuad.width,
+                  height: parsed.baseLeftEyeRect.height / parsed.baseFaceQuad.height
+                },
+                rightEye: {
+                  x: parsed.baseRightEyeRect.left / parsed.baseFaceQuad.width,
+                  y: parsed.baseRightEyeRect.top / parsed.baseFaceQuad.height,
+                  width: parsed.baseRightEyeRect.width / parsed.baseFaceQuad.width,
+                  height: parsed.baseRightEyeRect.height / parsed.baseFaceQuad.height
+                },
+                mouth: {
+                  x: parsed.baseMouthRect.left / parsed.baseFaceQuad.width,
+                  y: parsed.baseMouthRect.top / parsed.baseFaceQuad.height,
+                  width: parsed.baseMouthRect.width / parsed.baseFaceQuad.width,
+                  height: parsed.baseMouthRect.height / parsed.baseFaceQuad.height
+                },
+                mouthState: 'closed' as const,
+                eyeState: 'open' as const,
+                neckY: neckY,
+                neckX: 50,
+                removeWhiteBg: removeWhiteBg
+              };
+              setAvatarCoords(newCoords);
+
+              // Replace baseImage with cropped image
+              setBaseImage(baseFaceCanvas.toDataURL());
+            }
+          }
+        } finally {
+          tempLandmarker.close();
+        }
+      } catch (err) {
+        console.error("Grid check failed in SettingsScreen:", err)
+      } finally {
+        setIsProcessingGrid(false);
+      }
+    };
+
+    checkGridSheet();
+  }, [baseImage]);
 
   const handleSaveNewProfile = () => {
     // 保存前に、簡易2枚分割の場合は今の座標情報をavatarCoordsに記録する
@@ -61,6 +156,7 @@ const SettingsScreen: React.FC = () => {
         leftEye: null, rightEye: null, mouth: null,
         mouthState: 'closed', eyeState: 'open',
         neckY: neckY,
+        neckX: neckX,
         removeWhiteBg: removeWhiteBg
       });
     }
@@ -191,6 +287,7 @@ const SettingsScreen: React.FC = () => {
       } else {
         const reader = new FileReader();
         reader.onloadend = () => {
+          setOriginalGridImage(null);
           setBaseImage(reader.result as string);
           setPsdLayers(null);
           setAvatarCoords(null);
@@ -250,6 +347,7 @@ const SettingsScreen: React.FC = () => {
       } else {
         imgUrl = await generateCharacterImage(geminiApiKey, finalPrompt);
       }
+      setOriginalGridImage(null);
       setBaseImage(imgUrl);
       setPsdLayers(null);
       setAvatarCoords(null);
@@ -278,11 +376,20 @@ const SettingsScreen: React.FC = () => {
           mouthState: 'closed',
           eyeState: 'open',
           neckY: neckY,
+          neckX: neckX,
           removeWhiteBg: removeWhiteBg
         });
         navigate('/main');
       };
     } else {
+      if (avatarCoords) {
+        setAvatarCoords({
+          ...avatarCoords,
+          neckY: neckY,
+          neckX: neckX,
+          removeWhiteBg: removeWhiteBg
+        });
+      }
       navigate('/main');
     }
   };
@@ -524,14 +631,27 @@ const SettingsScreen: React.FC = () => {
             </div>
             <div className="form-group">
               <label style={{ display: 'flex', justifyContent: 'space-between' }}>
-                <span>首の高さ</span> 
-                <span style={{ color: '#a855f7', fontWeight: 'bold' }}>{neckY}%</span>
+                <span>首の高さ (上下位置)</span> 
+                <span style={{ color: '#ef4444', fontWeight: 'bold' }}>{neckY}%</span>
               </label>
               <input 
                 type="range" 
                 min="10" max="90" step="1"
                 value={neckY}
                 onChange={(e) => setNeckY(parseInt(e.target.value))}
+                style={{ width: '100%' }}
+              />
+            </div>
+            <div className="form-group">
+              <label style={{ display: 'flex', justifyContent: 'space-between' }}>
+                <span>首の回転軸 (左右位置)</span> 
+                <span style={{ color: '#a855f7', fontWeight: 'bold' }}>{neckX}%</span>
+              </label>
+              <input 
+                type="range" 
+                min="10" max="90" step="1"
+                value={neckX}
+                onChange={(e) => setNeckX(parseInt(e.target.value))}
                 style={{ width: '100%' }}
               />
             </div>

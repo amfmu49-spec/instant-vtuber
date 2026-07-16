@@ -19,7 +19,7 @@ const getVowelsFromText = (text: string): ('a' | 'i' | 'u' | 'e' | 'o' | null)[]
 };
 
 const MainScreen: React.FC = () => {
-  const { baseImage, sensitivity, avatarCoords, setAvatarCoords, customSkinColors, setCustomSkinColors, saveProfile, currentProfileName, psdLayers, setPsdLayers } = useAppContext();
+  const { baseImage, originalGridImage, sensitivity, avatarCoords, setAvatarCoords, customSkinColors, setCustomSkinColors, saveProfile, currentProfileName, psdLayers, setPsdLayers } = useAppContext();
   const navigate = useNavigate();
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -543,81 +543,35 @@ const MainScreen: React.FC = () => {
         );
 
         // --- GRID 表情シートの自動解析・切り出し ---
-        const tempLandmarker = await FaceLandmarker.createFromOptions(vision, {
-          baseOptions: {
-            modelAssetPath: 'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task',
-            delegate: 'GPU'
-          },
-          runningMode: 'IMAGE',
-          numFaces: 4
-        });
-        
-        try {
-          const results = tempLandmarker.detect(img);
-          if (results && results.faceLandmarks && results.faceLandmarks.length >= 2) {
-            console.log(`Grid expression sheet detected! Found ${results.faceLandmarks.length} faces.`);
-            const parsed = parseGridSheet(img, results.faceLandmarks);
-            if (parsed) {
-              gridExpressionCanvasesRef.current = parsed;
+        if (originalGridImage) {
+          const gridImg = new Image();
+          gridImg.src = originalGridImage;
+          await new Promise(r => { gridImg.onload = r; });
 
-              // 通常顔クアドラントを切り出す
-              const baseFaceCanvas = document.createElement('canvas');
-              baseFaceCanvas.width = parsed.baseFaceQuad.width;
-              baseFaceCanvas.height = parsed.baseFaceQuad.height;
-              const baseFaceCtx = baseFaceCanvas.getContext('2d');
-              if (baseFaceCtx) {
-                baseFaceCtx.drawImage(img, parsed.baseFaceQuad.left, parsed.baseFaceQuad.top, parsed.baseFaceQuad.width, parsed.baseFaceQuad.height, 0, 0, parsed.baseFaceQuad.width, parsed.baseFaceQuad.height);
+          const tempLandmarker = await FaceLandmarker.createFromOptions(vision, {
+            baseOptions: {
+              modelAssetPath: 'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task',
+              delegate: 'GPU'
+            },
+            runningMode: 'IMAGE',
+            numFaces: 4
+          });
+          
+          try {
+            const results = tempLandmarker.detect(gridImg);
+            if (results && results.faceLandmarks && results.faceLandmarks.length >= 2) {
+              console.log(`Grid expression sheet detected from context!`);
+              const parsed = parseGridSheet(gridImg, results.faceLandmarks);
+              if (parsed) {
+                gridExpressionCanvasesRef.current = parsed;
               }
-
-              // 首分割を行ってレイヤーを再生成
-              const currentCoords = avatarCoordsRef.current;
-              const neckY = currentCoords?.neckY ?? 55;
-              const removeWhiteBg = currentCoords?.removeWhiteBg ?? true;
-              const layers = splitImageIntoHeadAndBody(baseFaceCanvas as any, neckY, removeWhiteBg);
-              psdLayersRef.current = layers;
-              setPsdLayers(layers);
-
-              // 目の座標と口の座標を自動検出して座標データに上書き保存
-              const newCoords = {
-                leftEye: {
-                  x: parsed.baseLeftEyeRect.left / parsed.baseFaceQuad.width,
-                  y: parsed.baseLeftEyeRect.top / parsed.baseFaceQuad.height,
-                  width: parsed.baseLeftEyeRect.width / parsed.baseFaceQuad.width,
-                  height: parsed.baseLeftEyeRect.height / parsed.baseFaceQuad.height
-                },
-                rightEye: {
-                  x: parsed.baseRightEyeRect.left / parsed.baseFaceQuad.width,
-                  y: parsed.baseRightEyeRect.top / parsed.baseFaceQuad.height,
-                  width: parsed.baseRightEyeRect.width / parsed.baseFaceQuad.width,
-                  height: parsed.baseRightEyeRect.height / parsed.baseFaceQuad.height
-                },
-                mouth: {
-                  x: parsed.baseMouthRect.left / parsed.baseFaceQuad.width,
-                  y: parsed.baseMouthRect.top / parsed.baseFaceQuad.height,
-                  width: parsed.baseMouthRect.width / parsed.baseFaceQuad.width,
-                  height: parsed.baseMouthRect.height / parsed.baseFaceQuad.height
-                },
-                mouthState: 'closed',
-                eyeState: 'open',
-                neckY: neckY,
-                removeWhiteBg: removeWhiteBg
-              };
-              avatarCoordsRef.current = newCoords;
-              setAvatarCoords(newCoords as any);
-
-              // メイン画像の参照先を切り出したベース顔に変更
-              img.src = baseFaceCanvas.toDataURL();
-              await new Promise((r) => {
-                img.onload = () => r(true);
-              });
             }
+          } catch (err) {
+            console.error("Grid image landmarker failed:", err);
+          } finally {
+            tempLandmarker.close();
           }
-        } catch (err) {
-          console.error("Temp image landmarker failed:", err);
-        } finally {
-          tempLandmarker.close();
         }
-        // ------------------------------------------
 
         landmarker = await FaceLandmarker.createFromOptions(vision, {
           baseOptions: {
@@ -789,8 +743,14 @@ const MainScreen: React.FC = () => {
       
       const layers = psdLayersRef.current;
       let pivotY = ch * 0.65;
-      if (coords && coords.neckY !== undefined) {
-          pivotY = (coords.neckY / 100) * ch;
+      let pivotX = cw * 0.5;
+      if (coords) {
+          if (coords.neckY !== undefined) {
+              pivotY = (coords.neckY / 100) * ch;
+          }
+          if (coords.neckX !== undefined) {
+              pivotX = (coords.neckX / 100) * cw;
+          }
       }
       
       if (layers && layers.length > 0) {
@@ -815,18 +775,18 @@ const MainScreen: React.FC = () => {
                   const swayX = smoothedX * 1.5;
                   const swayY = smoothedY * 1.2;
                   const swayAngle = smoothedAngle * 1.2;
-                  ctx.translate(cw / 2 + swayX, pivotY + swayY);
+                  ctx.translate(pivotX + swayX, pivotY + swayY);
                   ctx.rotate(swayAngle);
-                  ctx.translate(-cw / 2, -pivotY);
+                  ctx.translate(-pivotX, -pivotY);
               } else if (isHead) {
-                  ctx.translate(cw / 2 + smoothedX, pivotY + smoothedY);
+                  ctx.translate(pivotX + smoothedX, pivotY + smoothedY);
                   ctx.rotate(smoothedAngle);
-                  ctx.translate(-cw / 2, -pivotY);
+                  ctx.translate(-pivotX, -pivotY);
               } else {
                   // Body sway
-                  ctx.translate(cw / 2 + smoothedX * 0.1, pivotY + smoothedY * 0.1);
+                  ctx.translate(pivotX + smoothedX * 0.1, pivotY + smoothedY * 0.1);
                   ctx.rotate(smoothedAngle * 0.1);
-                  ctx.translate(-cw / 2, -pivotY);
+                  ctx.translate(-pivotX, -pivotY);
               }
               if (layer.blendMode) {
                   let op = 'source-over';
@@ -859,14 +819,14 @@ const MainScreen: React.FC = () => {
           });
           
           ctx.save();
-          ctx.translate(cw / 2 + smoothedX, pivotY + smoothedY);
+          ctx.translate(pivotX + smoothedX, pivotY + smoothedY);
           ctx.rotate(smoothedAngle);
-          ctx.translate(-cw / 2, -pivotY);
+          ctx.translate(-pivotX, -pivotY);
       } else {
           ctx.save();
-          ctx.translate(cw / 2 + smoothedX, pivotY + smoothedY);
+          ctx.translate(pivotX + smoothedX, pivotY + smoothedY);
           ctx.rotate(smoothedAngle);
-          ctx.translate(-cw / 2, -pivotY);
+          ctx.translate(-pivotX, -pivotY);
           ctx.drawImage(img, 0, 0, img.width, img.height);
       }
 
@@ -907,9 +867,9 @@ const MainScreen: React.FC = () => {
             ctx.save();
             if (thisDragged) ctx.globalAlpha = 0.35;
             if (coords && coords.neckY !== undefined) {
-                ctx.translate(cw / 2 + smoothedX, pivotY + smoothedY);
+                ctx.translate(pivotX + smoothedX, pivotY + smoothedY);
                 ctx.rotate(smoothedAngle);
-                ctx.translate(-cw / 2, -pivotY);
+                ctx.translate(-pivotX, -pivotY);
             }
             ctx.translate(ox + w/2 + pX, oy + h/2 + pY);
 
@@ -980,9 +940,9 @@ const MainScreen: React.FC = () => {
                  const skin = customColors?.mouth || sampledColorsRef.current.mouth;
                  ctx.save();
                  if (coords && coords.neckY !== undefined) {
-                     ctx.translate(cw / 2 + smoothedX, pivotY + smoothedY);
+                     ctx.translate(pivotX + smoothedX, pivotY + smoothedY);
                      ctx.rotate(smoothedAngle);
-                     ctx.translate(-cw / 2, -pivotY);
+                     ctx.translate(-pivotX, -pivotY);
                  }
                  ctx.translate(mox + mw/2 + pX, moy + mh/2 + pY);
                  ctx.filter = `blur(${Math.max(6, mh * 0.25)}px)`;
@@ -997,9 +957,9 @@ const MainScreen: React.FC = () => {
               ctx.save();
               if (mouthDragged) ctx.globalAlpha = 0.35;
               if (coords && coords.neckY !== undefined) {
-                  ctx.translate(cw / 2 + smoothedX, pivotY + smoothedY);
+                  ctx.translate(pivotX + smoothedX, pivotY + smoothedY);
                   ctx.rotate(smoothedAngle);
-                  ctx.translate(-cw / 2, -pivotY);
+                  ctx.translate(-pivotX, -pivotY);
               }
               ctx.translate(mox + mw/2 + pX, moy + mh/2 + pY);
 

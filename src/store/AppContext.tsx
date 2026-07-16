@@ -23,6 +23,7 @@ export interface AvatarCoords {
     tongueColor: string;
   };
   neckY?: number; // 0 to 100 percent
+  neckX?: number; // 0 to 100 percent
   removeWhiteBg?: boolean;
 }
 
@@ -43,6 +44,8 @@ interface AppState {
   setGeminiApiKey: (key: string) => void;
   baseImage: string | null;
   setBaseImage: (dataUrl: string | null) => void;
+  originalGridImage: string | null;
+  setOriginalGridImage: (dataUrl: string | null) => void;
   characterImage: string | null;
   setCharacterImage: (dataUrl: string | null) => void;
   psdLayers: PsdLayerData[] | null;
@@ -77,6 +80,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [geminiApiKey, setGeminiApiKey] = useState(localStorage.getItem('gemini_api_key') || '');
   
   const [baseImage, setBaseImageState] = useState<string | null>(null);
+  const [originalGridImage, setOriginalGridImageState] = useState<string | null>(null);
   const [characterImage, setCharacterImageState] = useState<string | null>(null);
   const [psdLayers, setPsdLayersState] = useState<PsdLayerData[] | null>(null);
   const [avatarCoords, setAvatarCoordsState] = useState<AvatarCoords | null>(null);
@@ -126,6 +130,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const applyProfileData = (data: any) => {
     if (data.baseImage) setBaseImageState(data.baseImage);
+    if (data.originalGridImage) setOriginalGridImageState(data.originalGridImage);
+    else setOriginalGridImageState(null);
     if (data.characterImage) setCharacterImageState(data.characterImage);
     else setCharacterImageState(null);
     if (data.avatarCoords !== undefined) {
@@ -200,6 +206,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     try {
       const profileData = {
         baseImage,
+        originalGridImage,
         characterImage,
         avatarCoords,
         customSkinColors,
@@ -315,6 +322,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         setGeminiApiKey: handleSetApiKey,
         baseImage,
         setBaseImage,
+        originalGridImage,
+        setOriginalGridImage: (dataUrl: string | null) => setOriginalGridImageState(dataUrl),
         characterImage,
         setCharacterImage,
         psdLayers,
