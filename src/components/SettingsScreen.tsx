@@ -395,6 +395,32 @@ const SettingsScreen: React.FC = () => {
                 : (imageGeneratorEngine === 'free' ? '無料でAIキャラクターを生成' : 'AIキャラクターを生成する')
               }
             </button>
+            <div style={{ display: 'flex', gap: '0.5rem' }}>
+              <button
+                type="button"
+                onClick={() => {
+                  const fullPrompt = `${aiPrompt}, cute japanese 2d anime illustration style, beautiful anime face, cell-shaded, flat colors, front-facing bust-up portrait, looking at the viewer. Clear neck line without any accessories, simple hairstyle. Solid flat white background.`;
+                  window.open(`https://chatgpt.com/?q=${encodeURIComponent(fullPrompt)}`, '_blank');
+                }}
+                disabled={!aiPrompt.trim()}
+                className="button-secondary"
+                style={{ flex: 1, padding: '0.5rem', fontSize: '0.8rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.25rem', opacity: aiPrompt.trim() ? 1 : 0.5, cursor: aiPrompt.trim() ? 'pointer' : 'default' }}
+              >
+                💬 チャッピーで生成
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const fullPrompt = `${aiPrompt}, cute japanese 2d anime illustration style, beautiful anime face, cell-shaded, flat colors, front-facing bust-up portrait, looking at the viewer. Clear neck line without any accessories, simple hairstyle. Solid flat white background.`;
+                  window.open(`https://www.bing.com/images/create?q=${encodeURIComponent(fullPrompt)}`, '_blank');
+                }}
+                disabled={!aiPrompt.trim()}
+                className="button-secondary"
+                style={{ flex: 1, padding: '0.5rem', fontSize: '0.8rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.25rem', opacity: aiPrompt.trim() ? 1 : 0.5, cursor: aiPrompt.trim() ? 'pointer' : 'default' }}
+              >
+                🎨 Bingで生成
+              </button>
+            </div>
             {imageGeneratorEngine === 'gemini' && !geminiApiKey && (
               <small style={{ color: '#ef4444' }}>※上の「基本設定」でGemini APIキーを入力してください。</small>
             )}

@@ -194,14 +194,14 @@ export const generateCharacterImage = async (apiKey: string, promptText: string)
 export const generateFreeCharacterImage = async (promptText: string): Promise<string> => {
   if (!promptText) throw new Error("プロンプトが空です。");
 
-  // アニメ調の高品質な正面アバターを生成するプロンプト
-  const fullPrompt = `${promptText}, front-facing bust-up portrait, looking at the viewer. Clear neck line without any accessories, simple hairstyle. Solid flat white background, digital anime style, highly detailed.`;
+  // 日本のアニメ調2Dイラスト（セル画風）を強制する高精度プロンプト
+  const fullPrompt = `${promptText}, cute japanese 2d anime illustration style, beautiful anime face, cell-shaded, flat colors, front-facing bust-up portrait, looking at the viewer. Clear neck line without any accessories, simple hairstyle. Solid flat white background.`;
 
   try {
     const encodedPrompt = encodeURIComponent(fullPrompt);
-    // ランダムなシード値を追加して毎回違う画像になるようにする
     const seed = Math.floor(Math.random() * 1000000);
-    const url = `https://image.pollinations.ai/p/${encodedPrompt}?width=512&height=512&seed=${seed}&nologo=true&enhance=true`;
+    // model=flux-anime を指定して日本風アニメ画質を保証する
+    const url = `https://image.pollinations.ai/p/${encodedPrompt}?width=512&height=512&seed=${seed}&nologo=true&enhance=true&model=flux-anime`;
 
     const response = await fetch(url);
     if (!response.ok) {
