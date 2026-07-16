@@ -593,6 +593,28 @@ const SettingsScreen: React.FC = () => {
           />
         </div>
 
+        {baseImage && !originalGridImage && (
+          <div style={{ marginTop: '0.75rem' }}>
+            <button
+              type="button"
+              onClick={() => {
+                const promptText = `Please generate a 3x3 expression grid sheet of the exact same character shown in this reference image. Keep the character design, hair, clothes, and colors completely identical. 9 panels:
+- Row 1 (top): left is normal face (open eyes, closed mouth), middle is eyes closed (closed mouth), right is mouth "A" shape (open eyes)
+- Row 2 (middle): left is mouth "I" shape (open eyes), middle is mouth "U" shape (open eyes), right is mouth "E" shape (open eyes)
+- Row 3 (bottom): left is mouth "O" shape (open eyes), middle is smiling face, right is laughing face
+Same character design consistency across all panels, solid flat white background, front-facing digital anime style.`;
+                navigator.clipboard.writeText(promptText);
+                alert("「1枚絵から3x3表情シートを作るプロンプト」をクリップボードにコピーしました！\n\nこの後ChatGPTが開きますので、同じ画像ファイルをアップロードし、コピーしたテキストを貼り付けて送信してください。");
+                window.open("https://chatgpt.com/", "_blank");
+              }}
+              className="button-secondary"
+              style={{ width: '100%', padding: '0.6rem', fontSize: '0.8rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.25rem', border: '1px dashed #a855f7', color: '#c084fc' }}
+            >
+              🪄 この画像から3x3表情シートを作成 (チャッピー用)
+            </button>
+          </div>
+        )}
+
         {baseImage && psdLayers && (
           <div style={{ marginTop: '1.5rem' }}>
             <button 
