@@ -3,11 +3,31 @@ import type { PsdLayerData } from '../store/AppContext';
 export const splitImageIntoHeadAndBody = (
   img: HTMLImageElement,
   neckYPercent: number, // 0 to 100
-  removeWhiteBg: boolean = true
+  removeWhiteBg: boolean = true,
+  isGrid3x3: boolean = false
 ): PsdLayerData[] => {
-  const width = img.width;
-  const height = img.height;
+  let sourceCanvas = document.createElement('canvas');
+  let width = img.width;
+  let height = img.height;
   
+  if (isGrid3x3) {
+    width = img.width / 3;
+    height = img.height / 3;
+    sourceCanvas.width = width;
+    sourceCanvas.height = height;
+    const sCtx = sourceCanvas.getContext('2d');
+    if (sCtx) {
+      sCtx.drawImage(img, 0, 0, width, height, 0, 0, width, height);
+    }
+  } else {
+    sourceCanvas.width = width;
+    sourceCanvas.height = height;
+    const sCtx = sourceCanvas.getContext('2d');
+    if (sCtx) {
+      sCtx.drawImage(img, 0, 0);
+    }
+  }
+
   // 1. Create transparent base canvas
   const baseCanvas = document.createElement('canvas');
   baseCanvas.width = width;
@@ -15,7 +35,7 @@ export const splitImageIntoHeadAndBody = (
   const baseCtx = baseCanvas.getContext('2d');
   if (!baseCtx) return [];
   
-  baseCtx.drawImage(img, 0, 0);
+  baseCtx.drawImage(sourceCanvas, 0, 0);
   
   // 2. Remove white background if requested
   if (removeWhiteBg) {

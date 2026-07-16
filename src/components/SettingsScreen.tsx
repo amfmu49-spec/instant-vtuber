@@ -8,21 +8,6 @@ import { splitImageIntoHeadAndBody, parseGridSheet } from '../utils/avatarHelper
 import { FilesetResolver, FaceLandmarker } from '@mediapipe/tasks-vision';
 import type { PsdLayerData } from '../store/AppContext';
 
-const cropBaseImageToLeftTop = (srcUrl: string, callback: (croppedUrl: string) => void) => {
-  const img = new Image();
-  img.src = srcUrl;
-  img.onload = () => {
-    const canvas = document.createElement('canvas');
-    canvas.width = img.width / 3;
-    canvas.height = img.height / 3;
-    const ctx = canvas.getContext('2d');
-    if (ctx) {
-      ctx.drawImage(img, 0, 0, canvas.width, canvas.height, 0, 0, canvas.width, canvas.height);
-      callback(canvas.toDataURL());
-    }
-  };
-};
-
 const SettingsScreen: React.FC = () => {
   const { 
     geminiApiKey, setGeminiApiKey, 
@@ -221,13 +206,10 @@ const SettingsScreen: React.FC = () => {
           const srcUrl = reader.result as string;
           if (generateGridSheet) {
             setOriginalGridImage(srcUrl);
-            cropBaseImageToLeftTop(srcUrl, (croppedUrl) => {
-              setBaseImage(croppedUrl);
-            });
           } else {
             setOriginalGridImage(null);
-            setBaseImage(srcUrl);
           }
+          setBaseImage(srcUrl);
           setPsdLayers(null);
           setAvatarCoords(null);
           setProcessStatus('');
@@ -290,15 +272,11 @@ const SettingsScreen: React.FC = () => {
       setAvatarCoords(null);
       if (generateGridSheet) {
         setOriginalGridImage(imgUrl);
-        cropBaseImageToLeftTop(imgUrl, (croppedUrl) => {
-          setBaseImage(croppedUrl);
-          setProcessStatus('✅ AIアバター生成に成功しました！');
-        });
       } else {
         setOriginalGridImage(null);
-        setBaseImage(imgUrl);
-        setProcessStatus('✅ AIアバター生成に成功しました！');
       }
+      setBaseImage(imgUrl);
+      setProcessStatus('✅ AIアバター生成に成功しました！');
     } catch (err: any) {
       console.error(err);
       alert(`生成エラー: ${err.message || '詳細不明'}`);
@@ -313,48 +291,23 @@ const SettingsScreen: React.FC = () => {
       const img = new Image();
       img.src = baseImage;
       img.onload = () => {
-        const processLayers = (targetImg: HTMLImageElement) => {
-          const layers = splitImageIntoHeadAndBody(targetImg, neckY, removeWhiteBg);
-          setPsdLayers(layers);
-          
-          setAvatarCoords({
-            leftEye: avatarCoords?.leftEye ?? null,
-            rightEye: avatarCoords?.rightEye ?? null,
-            mouth: avatarCoords?.mouth ?? null,
-            mouthState: avatarCoords?.mouthState ?? 'closed',
-            eyeState: avatarCoords?.eyeState ?? 'open',
-            selectedEyeId: avatarCoords?.selectedEyeId,
-            selectedMouthId: avatarCoords?.selectedMouthId,
-            neckY: neckY,
-            neckX: neckX,
-            removeWhiteBg: removeWhiteBg
-          });
-          navigate('/main');
-        };
-
-        if (generateGridSheet || originalGridImage) {
-          if (!originalGridImage) {
-            setOriginalGridImage(baseImage);
-          }
-          const canvas = document.createElement('canvas');
-          canvas.width = img.width / 3;
-          canvas.height = img.height / 3;
-          const ctx = canvas.getContext('2d');
-          if (ctx) {
-            ctx.drawImage(img, 0, 0, canvas.width, canvas.height, 0, 0, canvas.width, canvas.height);
-            const croppedDataUrl = canvas.toDataURL();
-            setBaseImage(croppedDataUrl);
-            
-            const croppedImg = new Image();
-            croppedImg.src = croppedDataUrl;
-            croppedImg.onload = () => {
-              processLayers(croppedImg);
-            };
-            return;
-          }
-        }
-
-        processLayers(img);
+        const isGrid = generateGridSheet || !!originalGridImage;
+        const layers = splitImageIntoHeadAndBody(img, neckY, removeWhiteBg, isGrid);
+        setPsdLayers(layers);
+        
+        setAvatarCoords({
+          leftEye: avatarCoords?.leftEye ?? null,
+          rightEye: avatarCoords?.rightEye ?? null,
+          mouth: avatarCoords?.mouth ?? null,
+          mouthState: avatarCoords?.mouthState ?? 'closed',
+          eyeState: avatarCoords?.eyeState ?? 'open',
+          selectedEyeId: avatarCoords?.selectedEyeId,
+          selectedMouthId: avatarCoords?.selectedMouthId,
+          neckY: neckY,
+          neckX: neckX,
+          removeWhiteBg: removeWhiteBg
+        });
+        navigate('/main');
       };
     } else {
       if (avatarCoords) {
@@ -572,10 +525,7 @@ const SettingsScreen: React.FC = () => {
               type="button"
               onClick={() => {
                 setGenerateGridSheet(false);
-                if (originalGridImage) {
-                  setBaseImage(originalGridImage);
-                  setOriginalGridImage(null);
-                }
+                setOriginalGridImage(null);
               }}
               style={{
                 flex: 1,
@@ -595,11 +545,8 @@ const SettingsScreen: React.FC = () => {
               type="button"
               onClick={() => {
                 setGenerateGridSheet(true);
-                if (baseImage && !originalGridImage) {
+                if (baseImage) {
                   setOriginalGridImage(baseImage);
-                  cropBaseImageToLeftTop(baseImage, (croppedUrl) => {
-                    setBaseImage(croppedUrl);
-                  });
                 }
               }}
               style={{
