@@ -1198,6 +1198,49 @@ const MainScreen: React.FC = () => {
             <label style={{ fontSize: '0.625rem', color: '#9ca3af', display: 'block', marginBottom: '0.2rem' }}>拡大縮小 ({(partScales[selectedPart] * 100).toFixed(0)}%)</label>
             <input type="range" min="20" max="300" value={partScales[selectedPart] * 100} onChange={(e) => setPartScales(s => ({ ...s, [selectedPart]: parseInt(e.target.value) / 100 }))} style={{ width: '100%' }} />
           </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderTop: '1px solid rgba(255,255,255,0.1)', paddingTop: '0.5rem', marginTop: '0.2rem' }}>
+            <span style={{ fontSize: '0.75rem', color: '#9ca3af' }}>背景色</span>
+            <div style={{ display: 'flex', gap: '0.35rem', alignItems: 'center' }}>
+              {([
+                { value: 'transparent', label: 'T', desc: '透過背景' },
+                { value: '#00ff00', label: '', desc: 'グリーンバック' },
+                { value: '#ffffff', label: '', desc: '白' },
+                { value: '#000000', label: '', desc: '黒' }
+              ] as const).map(item => (
+                <button
+                  key={item.value}
+                  type="button"
+                  onClick={() => setBgColor(item.value)}
+                  style={{
+                    width: '1.5rem',
+                    height: '1.5rem',
+                    borderRadius: '50%',
+                    border: bgColor === item.value ? '2px solid #3b82f6' : '1px solid rgba(255,255,255,0.2)',
+                    background: item.value === 'transparent'
+                      ? 'repeating-conic-gradient(#555 0% 25%, #333 0% 50%) 50% / 8px 8px'
+                      : item.value,
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    padding: 0,
+                    outline: 'none'
+                  }}
+                  title={item.desc}
+                >
+                  {item.label && <span style={{ fontSize: '0.6rem', color: '#fff', fontWeight: 'bold' }}>{item.label}</span>}
+                </button>
+              ))}
+              <input
+                type="color"
+                value={bgColor.startsWith('#') ? bgColor : '#00ff00'}
+                onChange={(e) => setBgColor(e.target.value)}
+                style={{ width: '1.5rem', height: '1.5rem', borderRadius: '50%', cursor: 'pointer', padding: 0, border: '1px solid rgba(255,255,255,0.2)', background: 'none' }}
+                title="カスタムカラー"
+              />
+            </div>
+          </div>
         </div>
       )}
 

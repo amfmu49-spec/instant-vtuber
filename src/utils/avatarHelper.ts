@@ -230,6 +230,11 @@ export const parseGridSheet = (
   const closedRightEye = cropPart(closedEyesBoxRight);
   const openMouth = cropPart(openMouthBox);
 
+  // 表情パーツの境界線を柔らかくぼかして合成痕を目立たなくする
+  applyFeatherBox(closedLeftEye, Math.max(3, Math.floor(closedLeftEye.width * 0.15)));
+  applyFeatherBox(closedRightEye, Math.max(3, Math.floor(closedRightEye.width * 0.15)));
+  applyFeatherBox(openMouth, Math.max(3, Math.floor(openMouth.width * 0.15)));
+
   // 5. ベース顔側での各パーツ位置（クアドラント基準の相対座標へ変換するため）
   const baseLeftEyeBox = getLandmarksBoundingBox(baseFace.landmarks, LEFT_EYE_INDICES, width, height, 0.35);
   const baseRightEyeBox = getLandmarksBoundingBox(baseFace.landmarks, RIGHT_EYE_INDICES, width, height, 0.35);
@@ -254,4 +259,55 @@ export const parseGridSheet = (
     baseRightEyeRect: toQuadRect(baseRightEyeBox),
     baseMouthRect: toQuadRect(baseMouthBox)
   };
+};
+
+const applyFeatherBox = (canvas: HTMLCanvasElement, featherPx: number = 6) => {
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return;
+  
+  const w = canvas.width;
+  const h = canvas.height;
+  
+  const mask = document.createElement('canvas');
+  mask.width = w;
+  mask.height = h;
+  const mCtx = mask.getContext('2d');
+  if (!mCtx) return;
+  
+  mCtx.fillStyle = 'rgba(255,255,255,1)';
+  mCtx.fillRect(0, 0, w, h);
+  
+  mCtx.globalCompositeOperation = 'destination-out';
+  
+  // 左端のフェザー
+  let grad = mCtx.createLinearGradient(0, 0, featherPx, 0);
+  grad.addColorStop(0, 'rgba(0,0,0,1)');
+  grad.addColorStop(1, 'rgba(0,0,0,0)');
+  mCtx.fillStyle = grad;
+  mCtx.fillRect(0, 0, featherPx, h);
+  
+  // 右端のフェザー
+  grad = mCtx.createLinearGradient(w, 0, w - featherPx, 0);
+  grad.addColorStop(0, 'rgba(0,0,0,1)');
+  grad.addColorStop(1, 'rgba(0,0,0,0)');
+  mCtx.fillStyle = grad;
+  mCtx.fillRect(w - featherPx, 0, featherPx, h);
+  
+  // 上端のフェザー
+  grad = mCtx.createLinearGradient(0, 0, 0, featherPx);
+  grad.addColorStop(0, 'rgba(0,0,0,1)');
+  grad.addColorStop(1, 'rgba(0,0,0,0)');
+  mCtx.fillStyle = grad;
+  mCtx.fillRect(0, 0, w, featherPx);
+  
+  // 下端のフェザー
+  grad = mCtx.createLinearGradient(0, h, 0, h - featherPx);
+  grad.addColorStop(0, 'rgba(0,0,0,1)');
+  grad.addColorStop(1, 'rgba(0,0,0,0)');
+  mCtx.fillStyle = grad;
+  mCtx.fillRect(0, h - featherPx, w, featherPx);
+  
+  ctx.globalCompositeOperation = 'destination-in';
+  ctx.drawImage(mask, 0, 0);
+  ctx.globalCompositeOperation = 'source-over';
 };
