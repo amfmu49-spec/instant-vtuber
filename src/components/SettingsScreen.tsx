@@ -34,6 +34,7 @@ const SettingsScreen: React.FC = () => {
   const [neckY, setNeckY] = useState<number>(55);
   const [removeWhiteBg, setRemoveWhiteBg] = useState<boolean>(true);
   const [imageGeneratorEngine, setImageGeneratorEngine] = useState<'free' | 'gemini'>('free');
+  const [generateGridSheet, setGenerateGridSheet] = useState<boolean>(false);
 
   // デフォルトプロファイルが読み込まれたら自動的にメイン画面へ遷移する（1セッションに1回のみ）
   useEffect(() => {
@@ -238,11 +239,16 @@ const SettingsScreen: React.FC = () => {
     setIsGenerating(true);
     setProcessStatus('AI画像を生成しています...');
     try {
+      let finalPrompt = aiPrompt;
+      if (generateGridSheet) {
+        finalPrompt = `${aiPrompt}, 2x2 sprite sheet grid, 4 panels: top-left is normal face, top-right is eyes closed, bottom-left is mouth open, bottom-right is smiling. Same character, solid flat white background.`;
+      }
+
       let imgUrl = '';
       if (imageGeneratorEngine === 'free') {
-        imgUrl = await generateFreeCharacterImage(aiPrompt);
+        imgUrl = await generateFreeCharacterImage(finalPrompt);
       } else {
-        imgUrl = await generateCharacterImage(geminiApiKey, aiPrompt);
+        imgUrl = await generateCharacterImage(geminiApiKey, finalPrompt);
       }
       setBaseImage(imgUrl);
       setPsdLayers(null);
@@ -384,6 +390,20 @@ const SettingsScreen: React.FC = () => {
               style={{ resize: 'none' }}
               disabled={imageGeneratorEngine === 'gemini' && !geminiApiKey}
             />
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+              <input
+                type="checkbox"
+                id="generate-grid-sheet"
+                checked={generateGridSheet}
+                onChange={(e) => setGenerateGridSheet(e.target.checked)}
+                style={{ cursor: 'pointer', width: '1rem', height: '1rem' }}
+              />
+              <label htmlFor="generate-grid-sheet" style={{ cursor: 'pointer', fontSize: '0.8rem', color: '#cbd5e1', userSelect: 'none' }}>
+                🌟 表情シートとして作成（閉じ目・口開きの自動切り出し対応）
+              </label>
+            </div>
+
             <button
               onClick={handleGenerateCharacter}
               disabled={isGenerating || !aiPrompt.trim() || (imageGeneratorEngine === 'gemini' && !geminiApiKey)}
@@ -399,7 +419,9 @@ const SettingsScreen: React.FC = () => {
               <button
                 type="button"
                 onClick={() => {
-                  const fullPrompt = `${aiPrompt}, cute japanese 2d anime illustration style, beautiful anime face, cell-shaded, flat colors, front-facing bust-up portrait, looking at the viewer. Clear neck line without any accessories, simple hairstyle. Solid flat white background.`;
+                  const fullPrompt = generateGridSheet
+                    ? `${aiPrompt}, 2x2 sprite sheet grid, 4 panels: top-left is normal face, top-right is eyes closed, bottom-left is mouth open, bottom-right is smiling. Same character, solid flat white background.`
+                    : `${aiPrompt}, cute japanese 2d anime illustration style, beautiful anime face, cell-shaded, flat colors, front-facing bust-up portrait, looking at the viewer. Clear neck line without any accessories, simple hairstyle. Solid flat white background.`;
                   window.open(`https://chatgpt.com/?q=${encodeURIComponent(fullPrompt)}`, '_blank');
                 }}
                 disabled={!aiPrompt.trim()}
@@ -411,7 +433,9 @@ const SettingsScreen: React.FC = () => {
               <button
                 type="button"
                 onClick={() => {
-                  const fullPrompt = `${aiPrompt}, cute japanese 2d anime illustration style, beautiful anime face, cell-shaded, flat colors, front-facing bust-up portrait, looking at the viewer. Clear neck line without any accessories, simple hairstyle. Solid flat white background.`;
+                  const fullPrompt = generateGridSheet
+                    ? `${aiPrompt}, 2x2 sprite sheet grid, 4 panels: top-left is normal face, top-right is eyes closed, bottom-left is mouth open, bottom-right is smiling. Same character, solid flat white background.`
+                    : `${aiPrompt}, cute japanese 2d anime illustration style, beautiful anime face, cell-shaded, flat colors, front-facing bust-up portrait, looking at the viewer. Clear neck line without any accessories, simple hairstyle. Solid flat white background.`;
                   window.open(`https://www.bing.com/images/create?q=${encodeURIComponent(fullPrompt)}`, '_blank');
                 }}
                 disabled={!aiPrompt.trim()}

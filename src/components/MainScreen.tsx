@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAppContext } from '../store/AppContext';
 import { FilesetResolver, FaceLandmarker } from '@mediapipe/tasks-vision';
+import { parseGridSheet, splitImageIntoHeadAndBody } from '../utils/avatarHelper';
 import { ArrowLeft, Monitor, Settings2, X, Save } from 'lucide-react';
 
 const getVowelsFromText = (text: string): ('a' | 'i' | 'u' | 'e' | 'o' | null)[] => {
@@ -18,7 +19,7 @@ const getVowelsFromText = (text: string): ('a' | 'i' | 'u' | 'e' | 'o' | null)[]
 };
 
 const MainScreen: React.FC = () => {
-  const { baseImage, sensitivity, avatarCoords, setAvatarCoords, customSkinColors, setCustomSkinColors, saveProfile, currentProfileName, psdLayers } = useAppContext();
+  const { baseImage, sensitivity, avatarCoords, setAvatarCoords, customSkinColors, setCustomSkinColors, saveProfile, currentProfileName, psdLayers, setPsdLayers } = useAppContext();
   const navigate = useNavigate();
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -81,6 +82,7 @@ const MainScreen: React.FC = () => {
 
   const selectedEyeImgRef = useRef<HTMLImageElement | null>(null);
   const selectedMouthImgRef = useRef<HTMLImageElement | null>(null);
+  const gridExpressionCanvasesRef = useRef<any>(null);
 
   // Load and tint SVG parts dynamically
   useEffect(() => {
@@ -539,6 +541,84 @@ const MainScreen: React.FC = () => {
         const vision = await FilesetResolver.forVisionTasks(
           'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest/wasm'
         );
+
+        // --- GRID 表情シートの自動解析・切り出し ---
+        const tempLandmarker = await FaceLandmarker.createFromOptions(vision, {
+          baseOptions: {
+            modelAssetPath: 'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task',
+            delegate: 'GPU'
+          },
+          runningMode: 'IMAGE',
+          numFaces: 4
+        });
+        
+        try {
+          const results = tempLandmarker.detect(img);
+          if (results && results.faceLandmarks && results.faceLandmarks.length >= 2) {
+            console.log(`Grid expression sheet detected! Found ${results.faceLandmarks.length} faces.`);
+            const parsed = parseGridSheet(img, results.faceLandmarks);
+            if (parsed) {
+              gridExpressionCanvasesRef.current = parsed;
+
+              // 通常顔クアドラントを切り出す
+              const baseFaceCanvas = document.createElement('canvas');
+              baseFaceCanvas.width = parsed.baseFaceQuad.width;
+              baseFaceCanvas.height = parsed.baseFaceQuad.height;
+              const baseFaceCtx = baseFaceCanvas.getContext('2d');
+              if (baseFaceCtx) {
+                baseFaceCtx.drawImage(img, parsed.baseFaceQuad.left, parsed.baseFaceQuad.top, parsed.baseFaceQuad.width, parsed.baseFaceQuad.height, 0, 0, parsed.baseFaceQuad.width, parsed.baseFaceQuad.height);
+              }
+
+              // 首分割を行ってレイヤーを再生成
+              const currentCoords = avatarCoordsRef.current;
+              const neckY = currentCoords?.neckY ?? 55;
+              const removeWhiteBg = currentCoords?.removeWhiteBg ?? true;
+              const layers = splitImageIntoHeadAndBody(baseFaceCanvas as any, neckY, removeWhiteBg);
+              psdLayersRef.current = layers;
+              setPsdLayers(layers);
+
+              // 目の座標と口の座標を自動検出して座標データに上書き保存
+              const newCoords = {
+                leftEye: {
+                  x: parsed.baseLeftEyeRect.left / parsed.baseFaceQuad.width,
+                  y: parsed.baseLeftEyeRect.top / parsed.baseFaceQuad.height,
+                  width: parsed.baseLeftEyeRect.width / parsed.baseFaceQuad.width,
+                  height: parsed.baseLeftEyeRect.height / parsed.baseFaceQuad.height
+                },
+                rightEye: {
+                  x: parsed.baseRightEyeRect.left / parsed.baseFaceQuad.width,
+                  y: parsed.baseRightEyeRect.top / parsed.baseFaceQuad.height,
+                  width: parsed.baseRightEyeRect.width / parsed.baseFaceQuad.width,
+                  height: parsed.baseRightEyeRect.height / parsed.baseFaceQuad.height
+                },
+                mouth: {
+                  x: parsed.baseMouthRect.left / parsed.baseFaceQuad.width,
+                  y: parsed.baseMouthRect.top / parsed.baseFaceQuad.height,
+                  width: parsed.baseMouthRect.width / parsed.baseFaceQuad.width,
+                  height: parsed.baseMouthRect.height / parsed.baseFaceQuad.height
+                },
+                mouthState: 'closed',
+                eyeState: 'open',
+                neckY: neckY,
+                removeWhiteBg: removeWhiteBg
+              };
+              avatarCoordsRef.current = newCoords;
+              setAvatarCoords(newCoords as any);
+
+              // メイン画像の参照先を切り出したベース顔に変更
+              img.src = baseFaceCanvas.toDataURL();
+              await new Promise((r) => {
+                img.onload = () => r(true);
+              });
+            }
+          }
+        } catch (err) {
+          console.error("Temp image landmarker failed:", err);
+        } finally {
+          tempLandmarker.close();
+        }
+        // ------------------------------------------
+
         landmarker = await FaceLandmarker.createFromOptions(vision, {
           baseOptions: {
             modelAssetPath: 'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task',
@@ -852,24 +932,30 @@ const MainScreen: React.FC = () => {
             } else {
                 // 元の画像を切り抜いて使う場合
                 if (isClosed) {
-                    // 閉じた時：肌色で元の目を隠してからU字ラインを描く
-                    const skin = customColors?.[isLeft ? 'leftEye' : 'rightEye'] || sampledColorsRef.current[isLeft ? 'leftEye' : 'rightEye'];
-                    ctx.save();
-                    ctx.filter = `blur(${Math.max(4, h * 0.2)}px)`;
-                    ctx.fillStyle = skin;
-                    ctx.beginPath();
-                    ctx.ellipse(0, 0, w/2 + 2, h/2 + 2, 0, 0, Math.PI * 2);
-                    ctx.fill();
-                    ctx.restore();
+                    const gridExpr = gridExpressionCanvasesRef.current;
+                    if (gridExpr && gridExpr.closedLeftEye && gridExpr.closedRightEye) {
+                        const eyeCanvas = isLeft ? gridExpr.closedLeftEye : gridExpr.closedRightEye;
+                        ctx.drawImage(eyeCanvas, -w/2, -h/2, w, h);
+                    } else {
+                        // 閉じた時：肌色で元の目を隠してからU字ラインを描く
+                        const skin = customColors?.[isLeft ? 'leftEye' : 'rightEye'] || sampledColorsRef.current[isLeft ? 'leftEye' : 'rightEye'];
+                        ctx.save();
+                        ctx.filter = `blur(${Math.max(4, h * 0.2)}px)`;
+                        ctx.fillStyle = skin;
+                        ctx.beginPath();
+                        ctx.ellipse(0, 0, w/2 + 2, h/2 + 2, 0, 0, Math.PI * 2);
+                        ctx.fill();
+                        ctx.restore();
 
-                    const lashColor = coords?.lashColorHex || '#222222';
-                    ctx.strokeStyle = lashColor;
-                    ctx.lineWidth = Math.max(1, h * 0.02);
-                    ctx.lineCap = 'round';
-                    ctx.beginPath();
-                    ctx.moveTo(-w/2, -h * 0.05);
-                    ctx.quadraticCurveTo(0, h * 0.25, w/2, -h * 0.05);
-                    ctx.stroke();
+                        const lashColor = coords?.lashColorHex || '#222222';
+                        ctx.strokeStyle = lashColor;
+                        ctx.lineWidth = Math.max(1, h * 0.02);
+                        ctx.lineCap = 'round';
+                        ctx.beginPath();
+                        ctx.moveTo(-w/2, -h * 0.05);
+                        ctx.quadraticCurveTo(0, h * 0.25, w/2, -h * 0.05);
+                        ctx.stroke();
+                    }
                 } else {
                     // 開いている時：元の画像をそのまま描く（下地不要）
                     ctx.drawImage(img, eye.x * cw, eye.y * ch, eye.width * cw, eye.height * ch, -w/2, -h/2, w, h);
@@ -939,47 +1025,37 @@ const MainScreen: React.FC = () => {
                    ctx.scale(stretchX, stretchY);
                    ctx.drawImage(selectedMouthImgRef.current, -mw/2, -mh/2, mw, mh);
                } else {
-                   // 元の画像切り抜き：常に元の口を表示し、開いた時だけ上に上書き描画する
-                   // まず元の口を描画
-                   ctx.drawImage(img, mouth.x * cw, mouth.y * ch, mouth.width * cw, mouth.height * ch, -mw/2, -mh/2, mw, mh);
-
-                   const openAmount = isMouthOpen ? Math.max(0.15, animatedJawOpen * 2.5) : 0;
-                   if (openAmount > 0.15) {
-                       const skin = customColors?.mouth || sampledColorsRef.current.mouth || '#ffddcc';
-                       
-                       // 1. 肌色で元の口の線を完全に隠す
-                       ctx.save();
-                       ctx.filter = `blur(${Math.max(3, mh * 0.15)}px)`;
-                       ctx.fillStyle = skin;
-                       ctx.beginPath();
-                       ctx.ellipse(0, 0, mw * 0.5, mh * 0.8, 0, 0, Math.PI * 2);
-                       ctx.fill();
-                       ctx.restore();
-
-                       // 2. 口の中（暗い赤）を描画
-                       ctx.fillStyle = '#3a1111';
-                       ctx.beginPath();
-                       const mouthH = (mh / 2) * openAmount;
-                       ctx.ellipse(0, 0, mw * 0.38, mouthH, 0, 0, Math.PI * 2);
-                       ctx.fill();
-
-                       // 3. 舌（ピンク）を口の底に描画
-                       ctx.save();
-                       ctx.beginPath();
-                       ctx.ellipse(0, 0, mw * 0.38, mouthH, 0, 0, Math.PI * 2);
-                       ctx.clip();
-                       ctx.fillStyle = '#c96060';
-                       ctx.beginPath();
-                       ctx.ellipse(0, mouthH * 0.3, mw * 0.28, mouthH * 0.7, 0, 0, Math.PI * 2);
-                       ctx.fill();
-                       ctx.restore();
-                   }
-               }
-               ctx.restore();
-             }
-         }
-      
-      ctx.restore();
+                    // 元の画像切り抜き：常に元の口を表示し、開いた時だけ上に上書き描画する
+                    // まず元の口を描画
+                    ctx.drawImage(img, mouth.x * cw, mouth.y * ch, mouth.width * cw, mouth.height * ch, -mw/2, -mh/2, mw, mh);
+ 
+                    const openAmount = isMouthOpen ? Math.max(0.15, animatedJawOpen * 2.5) : 0;
+                    if (openAmount > 0.15) {
+                        const gridExpr = gridExpressionCanvasesRef.current;
+                        if (gridExpr && gridExpr.openMouth) {
+                            ctx.drawImage(gridExpr.openMouth, -mw/2, -mh/2, mw, mh);
+                        } else {
+                            const mouthH = (mh / 2) * openAmount;
+                            ctx.ellipse(0, 0, mw * 0.38, mouthH, 0, 0, Math.PI * 2);
+                            ctx.fill();
+     
+                            // 3. 舌（ピンク）を口の底に描画
+                            ctx.save();
+                            ctx.beginPath();
+                            ctx.ellipse(0, 0, mw * 0.38, mouthH, 0, 0, Math.PI * 2);
+                            ctx.clip();
+                            ctx.fillStyle = '#c96060';
+                            ctx.beginPath();
+                            ctx.ellipse(0, mouthH * 0.3, mw * 0.28, mouthH * 0.7, 0, 0, Math.PI * 2);
+                            ctx.fill();
+                            ctx.restore();
+                        }
+                    }
+                }
+                ctx.restore();
+            }
+        }
+        ctx.restore();
     };
 
     initMediaPipe();
