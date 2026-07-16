@@ -370,11 +370,13 @@ const SettingsScreen: React.FC = () => {
         setPsdLayers(layers);
         
         setAvatarCoords({
-          leftEye: null,
-          rightEye: null,
-          mouth: null,
-          mouthState: 'closed',
-          eyeState: 'open',
+          leftEye: avatarCoords?.leftEye ?? null,
+          rightEye: avatarCoords?.rightEye ?? null,
+          mouth: avatarCoords?.mouth ?? null,
+          mouthState: avatarCoords?.mouthState ?? 'closed',
+          eyeState: avatarCoords?.eyeState ?? 'open',
+          selectedEyeId: avatarCoords?.selectedEyeId,
+          selectedMouthId: avatarCoords?.selectedMouthId,
           neckY: neckY,
           neckX: neckX,
           removeWhiteBg: removeWhiteBg
