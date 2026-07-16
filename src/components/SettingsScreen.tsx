@@ -1,11 +1,10 @@
 import React, { useRef, useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAppContext } from '../store/AppContext';
-import { Camera, Upload, Key, Settings, Play, Sparkles } from 'lucide-react';
-import { analyzeAvatarImage, generateCharacterImage, generateFreeCharacterImage } from '../services/geminiService';
+import { Camera, Upload, Key, Settings, Play } from 'lucide-react';
+import { analyzeAvatarImage } from '../services/geminiService';
 import { readPsd } from 'ag-psd';
-import { splitImageIntoHeadAndBody, parseGridSheet } from '../utils/avatarHelper';
-import { FilesetResolver, FaceLandmarker } from '@mediapipe/tasks-vision';
+import { splitImageIntoHeadAndBody } from '../utils/avatarHelper';
 import type { PsdLayerData } from '../store/AppContext';
 
 const SettingsScreen: React.FC = () => {
@@ -30,13 +29,7 @@ const SettingsScreen: React.FC = () => {
   const [newProfileName, setNewProfileName] = useState<string>('');
   const [selectedProfile, setSelectedProfile] = useState<string>(currentProfileName || '');
 
-  // AIアバター生成用の状態
-  const [aiPrompt, setAiPrompt] = useState<string>('');
-  const [isGenerating, setIsGenerating] = useState<boolean>(false);
-  const [neckY, setNeckY] = useState<number>(55);
-  const [neckX, setNeckX] = useState<number>(50);
-  const [removeWhiteBg, setRemoveWhiteBg] = useState<boolean>(true);
-  const [imageGeneratorEngine, setImageGeneratorEngine] = useState<'free' | 'gemini'>('free');
+
 
   // デフォルトプロファイルが読み込まれたら自動的にメイン画面へ遷移する（1セッションに1回のみ）
   useEffect(() => {
@@ -46,35 +39,11 @@ const SettingsScreen: React.FC = () => {
     }
   }, [defaultProfileName, currentProfileName, navigate]);
 
-  // プロファイルロード時にスライダー座標を同期
-  useEffect(() => {
-    if (avatarCoords) {
-      if (avatarCoords.neckY !== undefined) {
-        setNeckY(avatarCoords.neckY);
-      }
-      if (avatarCoords.neckX !== undefined) {
-        setNeckX(avatarCoords.neckX);
-      }
-      if (avatarCoords.removeWhiteBg !== undefined) {
-        setRemoveWhiteBg(avatarCoords.removeWhiteBg);
-      }
-    }
-  }, [avatarCoords]);
+
 
 
 
   const handleSaveNewProfile = () => {
-    // 保存前に、簡易2枚分割の場合は今の座標情報をavatarCoordsに記録する
-    if (baseImage && !psdLayers) {
-      setAvatarCoords({
-        leftEye: null, rightEye: null, mouth: null,
-        mouthState: 'closed', eyeState: 'open',
-        neckY: neckY,
-        neckX: neckX,
-        removeWhiteBg: removeWhiteBg
-      });
-    }
-    
     setTimeout(() => {
       if (newProfileName.trim()) {
         saveProfile(newProfileName.trim());
@@ -241,46 +210,15 @@ const SettingsScreen: React.FC = () => {
     }
   };
 
-  const handleGenerateCharacter = async () => {
-    if (imageGeneratorEngine === 'gemini' && !geminiApiKey) {
-      alert('Gemini APIキーを入力してください。');
-      return;
-    }
-    if (!aiPrompt.trim()) return;
 
-    setIsGenerating(true);
-    setProcessStatus('AI画像を生成しています...');
-    try {
-      let finalPrompt = aiPrompt;
-      let imgUrl = '';
-      if (imageGeneratorEngine === 'free') {
-        imgUrl = await generateFreeCharacterImage(finalPrompt);
-      } else {
-        imgUrl = await generateCharacterImage(geminiApiKey, finalPrompt);
-      }
-      setPsdLayers(null);
-      setAvatarCoords(null);
-      setOriginalGridImage(null);
-      setBaseImage(imgUrl);
-      setProcessStatus('✅ AIアバター生成に成功しました！');
-    } catch (err: any) {
-      console.error(err);
-      alert(`生成エラー: ${err.message || '詳細不明'}`);
-      setProcessStatus('画像生成に失敗しました。');
-    } finally {
-      setIsGenerating(false);
-    }
-  };
 
   const handleStart = () => {
     if (baseImage && !psdLayers) {
       const img = new Image();
       img.src = baseImage;
       img.onload = () => {
-        const isGrid = false;
-        const layers = splitImageIntoHeadAndBody(img, neckY, removeWhiteBg, isGrid);
+        const layers = splitImageIntoHeadAndBody(img, 55, true, false);
         setPsdLayers(layers);
-        
         setAvatarCoords({
           leftEye: avatarCoords?.leftEye ?? null,
           rightEye: avatarCoords?.rightEye ?? null,
@@ -289,21 +227,13 @@ const SettingsScreen: React.FC = () => {
           eyeState: avatarCoords?.eyeState ?? 'open',
           selectedEyeId: avatarCoords?.selectedEyeId,
           selectedMouthId: avatarCoords?.selectedMouthId,
-          neckY: neckY,
-          neckX: neckX,
-          removeWhiteBg: removeWhiteBg
+          neckY: 55,
+          neckX: 50,
+          removeWhiteBg: true
         });
         navigate('/main');
       };
     } else {
-      if (avatarCoords) {
-        setAvatarCoords({
-          ...avatarCoords,
-          neckY: neckY,
-          neckX: neckX,
-          removeWhiteBg: removeWhiteBg
-        });
-      }
       navigate('/main');
     }
   };
@@ -351,109 +281,7 @@ const SettingsScreen: React.FC = () => {
         </div>
 
 
-        <div className="form-group" style={{ borderBottom: '1px solid rgba(255,255,255,0.1)', paddingBottom: '1.5rem', marginBottom: '1.5rem', marginTop: '1.5rem' }}>
-          <h3 style={{ fontSize: '1rem', display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '1rem' }}>
-            <Sparkles size={18} style={{ color: '#a855f7' }} /> AIアバター自動生成
-          </h3>
-          
-          <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1rem' }}>
-            <button
-              onClick={() => setImageGeneratorEngine('free')}
-              style={{
-                flex: 1,
-                padding: '0.5rem',
-                borderRadius: '8px',
-                border: 'none',
-                background: imageGeneratorEngine === 'free' ? 'linear-gradient(135deg, #a855f7 0%, #6366f1 100%)' : 'rgba(255,255,255,0.1)',
-                color: 'white',
-                fontSize: '0.8rem',
-                fontWeight: 'bold',
-                cursor: 'pointer'
-              }}
-            >
-              無料エンジン (キー不要)
-            </button>
-            <button
-              onClick={() => setImageGeneratorEngine('gemini')}
-              style={{
-                flex: 1,
-                padding: '0.5rem',
-                borderRadius: '8px',
-                border: 'none',
-                background: imageGeneratorEngine === 'gemini' ? 'linear-gradient(135deg, #a855f7 0%, #6366f1 100%)' : 'rgba(255,255,255,0.1)',
-                color: 'white',
-                fontSize: '0.8rem',
-                fontWeight: 'bold',
-                cursor: 'pointer'
-              }}
-            >
-              Gemini / Imagen 3
-            </button>
-          </div>
 
-          <p style={{ fontSize: '0.8rem', color: '#cbd5e1', marginBottom: '1rem' }}>
-            {imageGeneratorEngine === 'free' 
-              ? "APIキー不要でアニメ風のアバター画像を自動生成します。（英語のプロンプトの方が上手く生成されます）"
-              : "GeminiのImagen 3モデルで生成します。（APIキーとプロジェクトの課金連携が必要です）"
-            }
-          </p>
-          
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-            <textarea
-              className="input-field"
-              rows={2}
-              placeholder={imageGeneratorEngine === 'free'
-                ? "例: cute cat girl, blonde hair, wizard outfit, looking at camera"
-                : "例: cute cat girl, blonde hair, wizard outfit"
-              }
-              value={aiPrompt}
-              onChange={(e) => setAiPrompt(e.target.value)}
-              style={{ resize: 'none' }}
-              disabled={imageGeneratorEngine === 'gemini' && !geminiApiKey}
-            />
-
-            <button
-              onClick={handleGenerateCharacter}
-              disabled={isGenerating || !aiPrompt.trim() || (imageGeneratorEngine === 'gemini' && !geminiApiKey)}
-              className="button-primary"
-              style={{ background: isGenerating || !aiPrompt.trim() || (imageGeneratorEngine === 'gemini' && !geminiApiKey) ? undefined : 'linear-gradient(135deg, #a855f7 0%, #6366f1 100%)', border: 'none', width: '100%', padding: '0.75rem' }}
-            >
-              {isGenerating 
-                ? 'アバター画像生成中...' 
-                : (imageGeneratorEngine === 'free' ? '無料でAIキャラクターを生成' : 'AIキャラクターを生成する')
-              }
-            </button>
-            <div style={{ display: 'flex', gap: '0.5rem' }}>
-              <button
-                type="button"
-                onClick={() => {
-                  const fullPrompt = `${aiPrompt}, cute japanese 2d anime illustration style, beautiful anime face, cell-shaded, flat colors, front-facing bust-up portrait, looking at the viewer. Clear neck line without any accessories, simple hairstyle. Solid flat white background.`;
-                  window.open(`https://chatgpt.com/?q=${encodeURIComponent(fullPrompt)}`, '_blank');
-                }}
-                disabled={!aiPrompt.trim()}
-                className="button-secondary"
-                style={{ flex: 1, padding: '0.5rem', fontSize: '0.8rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.25rem', opacity: aiPrompt.trim() ? 1 : 0.5, cursor: aiPrompt.trim() ? 'pointer' : 'default' }}
-              >
-                💬 チャッピーで生成
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  const fullPrompt = `${aiPrompt}, cute japanese 2d anime illustration style, beautiful anime face, cell-shaded, flat colors, front-facing bust-up portrait, looking at the viewer. Clear neck line without any accessories, simple hairstyle. Solid flat white background.`;
-                  window.open(`https://www.bing.com/images/create?q=${encodeURIComponent(fullPrompt)}`, '_blank');
-                }}
-                disabled={!aiPrompt.trim()}
-                className="button-secondary"
-                style={{ flex: 1, padding: '0.5rem', fontSize: '0.8rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.25rem', opacity: aiPrompt.trim() ? 1 : 0.5, cursor: aiPrompt.trim() ? 'pointer' : 'default' }}
-              >
-                🎨 Bingで生成
-              </button>
-            </div>
-            {imageGeneratorEngine === 'gemini' && !geminiApiKey && (
-              <small style={{ color: '#ef4444' }}>※上の「基本設定」でGemini APIキーを入力してください。</small>
-            )}
-          </div>
-        </div>
 
         <div className="form-group" style={{ marginTop: '2rem' }}>
           <label>アバター画像 (ベースモデル)</label>
@@ -503,108 +331,7 @@ const SettingsScreen: React.FC = () => {
           </div>
         )}
 
-        {baseImage && !psdLayers && (
-          <div style={{ marginTop: '1.5rem', borderTop: '1px solid rgba(255,255,255,0.1)', paddingTop: '1.5rem' }}>
-            <h3 style={{ fontSize: '1rem', marginBottom: '0.5rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-              首の分割位置（スライサー）
-            </h3>
-            <p style={{ fontSize: '0.8rem', color: '#cbd5e1', marginBottom: '1rem' }}>
-              スライダーを動かして、赤線をキャラクターの「あごの真下（首）」の位置に合わせてください。
-            </p>
-            <div style={{ position: 'relative', display: 'flex', justifyContent: 'center', margin: '0 auto 1rem' }}>
-              <div style={{ 
-                position: 'relative', 
-                display: 'inline-block',
-                width: '180px',
-                height: '180px',
-                overflow: 'hidden',
-                borderRadius: '8px',
-                border: '1px solid rgba(255,255,255,0.2)',
-                background: 'rgba(0,0,0,0.15)'
-              }}>
-                <img 
-                  src={baseImage} 
-                  alt="Neck adjustment" 
-                  style={{ 
-                    position: 'absolute',
-                    top: 0,
-                    left: 0,
-                    width: '100%', 
-                    height: '100%', 
-                    display: 'block',
-                    objectFit: 'contain'
-                  }} 
-                />
-                {/* 首の切断位置線 (上下赤線) */}
-                <div 
-                  style={{ 
-                    position: 'absolute', 
-                    top: `${neckY}%`, 
-                    left: 0, 
-                    right: 0, 
-                    height: '2px', 
-                    background: '#ef4444', 
-                    boxShadow: '0 0 8px #ef4444',
-                    pointerEvents: 'none',
-                    zIndex: 10
-                  }} 
-                />
-                {/* 首の回転中心線 (左右紫線) */}
-                <div 
-                  style={{ 
-                    position: 'absolute', 
-                    top: 0, 
-                    bottom: 0, 
-                    left: `${neckX}%`, 
-                    width: '2px', 
-                    background: '#a855f7', 
-                    boxShadow: '0 0 8px #a855f7',
-                    pointerEvents: 'none',
-                    zIndex: 10
-                  }} 
-                />
-              </div>
-            </div>
-            <div className="form-group">
-              <label style={{ display: 'flex', justifyContent: 'space-between' }}>
-                <span>首の高さ (上下位置)</span> 
-                <span style={{ color: '#ef4444', fontWeight: 'bold' }}>{neckY}%</span>
-              </label>
-              <input 
-                type="range" 
-                min="10" max="90" step="1"
-                value={neckY}
-                onChange={(e) => setNeckY(parseInt(e.target.value))}
-                style={{ width: '100%' }}
-              />
-            </div>
-            <div className="form-group">
-              <label style={{ display: 'flex', justifyContent: 'space-between' }}>
-                <span>首の回転軸 (左右位置)</span> 
-                <span style={{ color: '#a855f7', fontWeight: 'bold' }}>{neckX}%</span>
-              </label>
-              <input 
-                type="range" 
-                min="10" max="90" step="1"
-                value={neckX}
-                onChange={(e) => setNeckX(parseInt(e.target.value))}
-                style={{ width: '100%' }}
-              />
-            </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginTop: '0.5rem', marginBottom: '1rem' }}>
-              <input 
-                type="checkbox" 
-                id="remove-white-bg"
-                checked={removeWhiteBg}
-                onChange={(e) => setRemoveWhiteBg(e.target.checked)}
-                style={{ cursor: 'pointer' }}
-              />
-              <label htmlFor="remove-white-bg" style={{ cursor: 'pointer', fontSize: '0.85rem', color: '#cbd5e1' }}>
-                白背景を自動的に透明化する
-              </label>
-            </div>
-          </div>
-        )}
+
 
         <div className="form-group" style={{ marginTop: '2rem' }}>
           <label>まばたき感度 ({sensitivity.eyeClose})</label>
