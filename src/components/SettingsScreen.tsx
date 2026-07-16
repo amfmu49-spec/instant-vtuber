@@ -63,91 +63,7 @@ const SettingsScreen: React.FC = () => {
     }
   }, [avatarCoords]);
 
-  useEffect(() => {
-    if (!baseImage || isProcessingGrid) return;
-    if (originalGridImage && baseImage !== originalGridImage) return;
 
-    const checkGridSheet = async () => {
-      const img = new Image();
-      img.src = baseImage;
-      await new Promise(resolve => { img.onload = resolve; });
-
-      try {
-        setIsProcessingGrid(true);
-        const vision = await FilesetResolver.forVisionTasks(
-          'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest/wasm'
-        );
-        const tempLandmarker = await FaceLandmarker.createFromOptions(vision, {
-          baseOptions: {
-            modelAssetPath: 'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task',
-            delegate: 'GPU'
-          },
-          runningMode: 'IMAGE',
-          numFaces: 4
-        });
-
-        try {
-          const results = tempLandmarker.detect(img);
-          if (results && results.faceLandmarks && results.faceLandmarks.length >= 2) {
-            console.log("SettingsScreen: Grid sheet detected. Processing...");
-            const parsed = parseGridSheet(img, results.faceLandmarks);
-            if (parsed) {
-              // Save original grid in context
-              setOriginalGridImage(baseImage);
-
-              // Crop base face
-              const baseFaceCanvas = document.createElement('canvas');
-              baseFaceCanvas.width = parsed.baseFaceQuad.width;
-              baseFaceCanvas.height = parsed.baseFaceQuad.height;
-              const baseFaceCtx = baseFaceCanvas.getContext('2d');
-              if (baseFaceCtx) {
-                baseFaceCtx.drawImage(img, parsed.baseFaceQuad.left, parsed.baseFaceQuad.top, parsed.baseFaceQuad.width, parsed.baseFaceQuad.height, 0, 0, parsed.baseFaceQuad.width, parsed.baseFaceQuad.height);
-              }
-
-              // Update coordinates dynamically so they align to the cropped face
-              const newCoords = {
-                leftEye: {
-                  x: parsed.baseLeftEyeRect.left / parsed.baseFaceQuad.width,
-                  y: parsed.baseLeftEyeRect.top / parsed.baseFaceQuad.height,
-                  width: parsed.baseLeftEyeRect.width / parsed.baseFaceQuad.width,
-                  height: parsed.baseLeftEyeRect.height / parsed.baseFaceQuad.height
-                },
-                rightEye: {
-                  x: parsed.baseRightEyeRect.left / parsed.baseFaceQuad.width,
-                  y: parsed.baseRightEyeRect.top / parsed.baseFaceQuad.height,
-                  width: parsed.baseRightEyeRect.width / parsed.baseFaceQuad.width,
-                  height: parsed.baseRightEyeRect.height / parsed.baseFaceQuad.height
-                },
-                mouth: {
-                  x: parsed.baseMouthRect.left / parsed.baseFaceQuad.width,
-                  y: parsed.baseMouthRect.top / parsed.baseFaceQuad.height,
-                  width: parsed.baseMouthRect.width / parsed.baseFaceQuad.width,
-                  height: parsed.baseMouthRect.height / parsed.baseFaceQuad.height
-                },
-                mouthState: 'closed' as const,
-                eyeState: 'open' as const,
-                neckY: neckY,
-                neckX: neckX,
-                removeWhiteBg: removeWhiteBg
-              };
-              setAvatarCoords(newCoords);
-
-              // Replace baseImage with cropped image
-              setBaseImage(baseFaceCanvas.toDataURL());
-            }
-          }
-        } finally {
-          tempLandmarker.close();
-        }
-      } catch (err) {
-        console.error("Grid check failed in SettingsScreen:", err)
-      } finally {
-        setIsProcessingGrid(false);
-      }
-    };
-
-    checkGridSheet();
-  }, [baseImage]);
 
   const handleSaveNewProfile = () => {
     // 保存前に、簡易2枚分割の場合は今の座標情報をavatarCoordsに記録する
@@ -593,6 +509,48 @@ const SettingsScreen: React.FC = () => {
           />
         </div>
 
+        {baseImage && (
+          <div style={{ marginTop: '0.75rem', display: 'flex', gap: '0.5rem' }}>
+            <button
+              type="button"
+              onClick={() => {
+                setGenerateGridSheet(false);
+                setOriginalGridImage(null);
+              }}
+              style={{
+                flex: 1,
+                padding: '0.5rem',
+                borderRadius: '8px',
+                border: 'none',
+                background: !generateGridSheet ? 'linear-gradient(135deg, #a855f7 0%, #6366f1 100%)' : 'rgba(255,255,255,0.1)',
+                color: 'white',
+                fontSize: '0.8rem',
+                fontWeight: 'bold',
+                cursor: 'pointer'
+              }}
+            >
+              🖼 通常の1枚絵
+            </button>
+            <button
+              type="button"
+              onClick={() => setGenerateGridSheet(true)}
+              style={{
+                flex: 1,
+                padding: '0.5rem',
+                borderRadius: '8px',
+                border: 'none',
+                background: generateGridSheet ? 'linear-gradient(135deg, #a855f7 0%, #6366f1 100%)' : 'rgba(255,255,255,0.1)',
+                color: 'white',
+                fontSize: '0.8rem',
+                fontWeight: 'bold',
+                cursor: 'pointer'
+              }}
+            >
+              📊 3x3表情シート
+            </button>
+          </div>
+        )}
+
         {baseImage && !originalGridImage && (
           <div style={{ marginTop: '0.75rem' }}>
             <button
@@ -637,18 +595,55 @@ Same character design consistency across all panels, solid flat white background
               スライダーを動かして、赤線をキャラクターの「あごの真下（首）」の位置に合わせてください。
             </p>
             <div style={{ position: 'relative', display: 'flex', justifyContent: 'center', margin: '0 auto 1rem' }}>
-              <div style={{ position: 'relative', display: 'inline-block' }}>
-                <img src={baseImage} alt="Neck adjustment" style={{ maxWidth: '100%', maxHeight: '220px', display: 'block', borderRadius: '8px' }} />
+              <div style={{ 
+                position: 'relative', 
+                display: 'inline-block',
+                width: '180px',
+                height: '180px',
+                overflow: 'hidden',
+                borderRadius: '8px',
+                border: '1px solid rgba(255,255,255,0.2)',
+                background: 'rgba(0,0,0,0.15)'
+              }}>
+                <img 
+                  src={baseImage} 
+                  alt="Neck adjustment" 
+                  style={{ 
+                    position: 'absolute',
+                    top: 0,
+                    left: 0,
+                    width: generateGridSheet ? '300%' : '100%', 
+                    height: generateGridSheet ? '300%' : '100%', 
+                    display: 'block',
+                    objectFit: 'contain'
+                  }} 
+                />
+                {/* 首の切断位置線 (上下赤線) */}
                 <div 
                   style={{ 
                     position: 'absolute', 
+                    top: `${neckY}%`, 
                     left: 0, 
                     right: 0, 
-                    top: `${neckY}%`, 
                     height: '2px', 
-                    backgroundColor: '#ef4444', 
+                    background: '#ef4444', 
                     boxShadow: '0 0 8px #ef4444',
-                    pointerEvents: 'none'
+                    pointerEvents: 'none',
+                    zIndex: 10
+                  }} 
+                />
+                {/* 首の回転中心線 (左右紫線) */}
+                <div 
+                  style={{ 
+                    position: 'absolute', 
+                    top: 0, 
+                    bottom: 0, 
+                    left: `${neckX}%`, 
+                    width: '2px', 
+                    background: '#a855f7', 
+                    boxShadow: '0 0 8px #a855f7',
+                    pointerEvents: 'none',
+                    zIndex: 10
                   }} 
                 />
               </div>
