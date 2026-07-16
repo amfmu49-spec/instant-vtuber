@@ -82,7 +82,9 @@ const MainScreen: React.FC = () => {
 
   const selectedEyeImgRef = useRef<HTMLImageElement | null>(null);
   const selectedMouthImgRef = useRef<HTMLImageElement | null>(null);
+  const selectedMouthClosedImgRef = useRef<HTMLImageElement | null>(null);
   const gridExpressionCanvasesRef = useRef<any>(null);
+  const baseFaceCanvasRef = useRef<HTMLCanvasElement | null>(null);
 
   // Load and tint SVG parts dynamically
   useEffect(() => {
@@ -115,14 +117,24 @@ const MainScreen: React.FC = () => {
         selectedEyeImgRef.current = null;
     }
     if (avatarCoords?.selectedMouthId) {
+        // 開いた口
         loadSvg(avatarCoords.selectedMouthId, {
           'currentColor': avatarCoords.lashColorHex || '#222222',
           'var(--mouth-bg, #661111)': '#6b1b1b',
           'var(--mouth-bg, #441111)': '#441111',
           'var(--tongue-color, #ff6666)': '#b54141',
         }).then(img => { if (img) selectedMouthImgRef.current = img; });
+
+        // 閉じた口（中身が透明）
+        loadSvg(avatarCoords.selectedMouthId, {
+          'currentColor': avatarCoords.lashColorHex || '#222222',
+          'var(--mouth-bg, #661111)': 'transparent',
+          'var(--mouth-bg, #441111)': 'transparent',
+          'var(--tongue-color, #ff6666)': 'transparent',
+        }).then(img => { if (img) selectedMouthClosedImgRef.current = img; });
     } else {
         selectedMouthImgRef.current = null;
+        selectedMouthClosedImgRef.current = null;
     }
   }, [avatarCoords]);
   
@@ -486,6 +498,24 @@ const MainScreen: React.FC = () => {
     const ctx = canvas?.getContext('2d');
     const img = new Image();
     img.src = baseImage;
+    img.onload = () => {
+      const isGrid = !!originalGridImage;
+      const targetW = isGrid ? img.width / 3 : img.width;
+      const targetH = isGrid ? img.height / 3 : img.height;
+      const fCanvas = document.createElement('canvas');
+      fCanvas.width = targetW;
+      fCanvas.height = targetH;
+      const fCtx = fCanvas.getContext('2d');
+      if (fCtx) {
+        if (isGrid) {
+          fCtx.drawImage(img, 0, 0, targetW, targetH, 0, 0, targetW, targetH);
+        } else {
+          fCtx.drawImage(img, 0, 0);
+        }
+      }
+      baseFaceCanvasRef.current = fCanvas;
+      drawBaseImageOnly();
+    };
 
     let smoothedAngle = 0;
     let smoothedX = 0;
@@ -538,7 +568,7 @@ const MainScreen: React.FC = () => {
           }
         });
       } else {
-        ctx.drawImage(img, 0, 0, img.width, img.height);
+        ctx.drawImage(baseFaceCanvasRef.current || img, 0, 0, canvas.width, canvas.height);
       }
       
       try {
@@ -550,8 +580,7 @@ const MainScreen: React.FC = () => {
       } catch (e) {}
     };
 
-    if (img.complete) drawBaseImageOnly();
-    else img.onload = drawBaseImageOnly;
+
 
     const initMediaPipe = async () => {
       try {
@@ -849,7 +878,7 @@ const MainScreen: React.FC = () => {
           ctx.translate(pivotX + smoothedX, pivotY + smoothedY);
           ctx.rotate(smoothedAngle);
           ctx.translate(-pivotX, -pivotY);
-          ctx.drawImage(img, 0, 0, img.width, img.height);
+          ctx.drawImage(baseFaceCanvasRef.current || img, 0, 0, canvas.width, canvas.height);
       }
 
         if (isSpeakingRef.current) {
@@ -914,33 +943,27 @@ const MainScreen: React.FC = () => {
             } else {
                 // 元の画像を切り抜いて使う場合
                 if (isClosed) {
-                    const gridExpr = gridExpressionCanvasesRef.current;
-                    if (gridExpr && gridExpr.closedLeftEye && gridExpr.closedRightEye) {
-                        const eyeCanvas = isLeft ? gridExpr.closedLeftEye : gridExpr.closedRightEye;
-                        ctx.drawImage(eyeCanvas, -w/2, -h/2, w, h);
-                    } else {
-                        // 閉じた時：肌色で元の目を隠してからU字ラインを描く
-                        const skin = customColors?.[isLeft ? 'leftEye' : 'rightEye'] || sampledColorsRef.current[isLeft ? 'leftEye' : 'rightEye'];
-                        ctx.save();
-                        ctx.filter = `blur(${Math.max(4, h * 0.2)}px)`;
-                        ctx.fillStyle = skin;
-                        ctx.beginPath();
-                        ctx.ellipse(0, 0, w/2 + 2, h/2 + 2, 0, 0, Math.PI * 2);
-                        ctx.fill();
-                        ctx.restore();
+                    // 閉じた時：肌色で元の目を隠してからU字ラインを描く
+                    const skin = customColors?.[isLeft ? 'leftEye' : 'rightEye'] || sampledColorsRef.current[isLeft ? 'leftEye' : 'rightEye'];
+                    ctx.save();
+                    ctx.filter = `blur(${Math.max(4, h * 0.2)}px)`;
+                    ctx.fillStyle = skin;
+                    ctx.beginPath();
+                    ctx.ellipse(0, 0, w/2 + 2, h/2 + 2, 0, 0, Math.PI * 2);
+                    ctx.fill();
+                    ctx.restore();
 
-                        const lashColor = coords?.lashColorHex || '#222222';
-                        ctx.strokeStyle = lashColor;
-                        ctx.lineWidth = Math.max(1, h * 0.02);
-                        ctx.lineCap = 'round';
-                        ctx.beginPath();
-                        ctx.moveTo(-w/2, -h * 0.05);
-                        ctx.quadraticCurveTo(0, h * 0.25, w/2, -h * 0.05);
-                        ctx.stroke();
-                    }
+                    const lashColor = coords?.lashColorHex || '#222222';
+                    ctx.strokeStyle = lashColor;
+                    ctx.lineWidth = Math.max(1, h * 0.02);
+                    ctx.lineCap = 'round';
+                    ctx.beginPath();
+                    ctx.moveTo(-w/2, -h * 0.05);
+                    ctx.quadraticCurveTo(0, h * 0.25, w/2, -h * 0.05);
+                    ctx.stroke();
                 } else {
                     // 開いている時：元の画像をそのまま描く（下地不要）
-                    ctx.drawImage(img, eye.x * cw, eye.y * ch, eye.width * cw, eye.height * ch, -w/2, -h/2, w, h);
+                    ctx.drawImage(baseFaceCanvasRef.current || img, eye.x * cw, eye.y * ch, eye.width * cw, eye.height * ch, -w/2, -h/2, w, h);
                 }
             }
             ctx.restore();
@@ -986,56 +1009,62 @@ const MainScreen: React.FC = () => {
               ctx.translate(mox + mw/2 + pX, moy + mh/2 + pY);
 
                if (selectedMouthImgRef.current) {
-                   // カスタムSVGパーツ：閉じた状態から口を開く
-                   let stretchX = 1.0;
-                   let stretchY = 0.1;
-                   if (isMouthOpen) {
-                       if (currentVowel === 'a') {
-                           stretchX = 1.0; stretchY = Math.max(0.15, animatedJawOpen * 3.0);
-                       } else if (currentVowel === 'i') {
-                           stretchX = 1.3; stretchY = Math.max(0.15, animatedJawOpen * 1.5);
-                       } else if (currentVowel === 'u') {
-                           stretchX = 0.6; stretchY = Math.max(0.15, animatedJawOpen * 2.5);
-                       } else if (currentVowel === 'e') {
-                           stretchX = 1.1; stretchY = Math.max(0.15, animatedJawOpen * 2.0);
-                       } else if (currentVowel === 'o') {
-                           stretchX = 0.8; stretchY = Math.max(0.15, animatedJawOpen * 3.5);
-                       } else {
-                           stretchY = Math.max(0.15, animatedJawOpen * 3.0);
-                       }
-                   }
-                   ctx.scale(stretchX, stretchY);
-                   ctx.drawImage(selectedMouthImgRef.current, -mw/2, -mh/2, mw, mh);
-               } else {
+                    // カスタムSVGパーツ：閉じた状態から口を開く
+                    let stretchX = 1.0;
+                    let stretchY = 0.05; // 閉じ口のときの高さ比率
+                    let useClosedMouth = true;
+
+                    // 口の開き具合のしきい値
+                    const mouthOpenThreshold = sensitivityRef.current?.mouthOpen || 0.1;
+                    if (isMouthOpen && animatedJawOpen > mouthOpenThreshold) {
+                        useClosedMouth = false;
+                        if (currentVowel === 'a') {
+                            stretchX = 1.0; stretchY = Math.max(0.15, animatedJawOpen * 3.0);
+                        } else if (currentVowel === 'i') {
+                            stretchX = 1.3; stretchY = Math.max(0.15, animatedJawOpen * 1.5);
+                        } else if (currentVowel === 'u') {
+                            stretchX = 0.6; stretchY = Math.max(0.15, animatedJawOpen * 2.5);
+                        } else if (currentVowel === 'e') {
+                            stretchX = 1.1; stretchY = Math.max(0.15, animatedJawOpen * 2.0);
+                        } else if (currentVowel === 'o') {
+                            stretchX = 0.8; stretchY = Math.max(0.15, animatedJawOpen * 3.5);
+                        } else {
+                            stretchY = Math.max(0.15, animatedJawOpen * 3.0);
+                        }
+                    }
+
+                    ctx.scale(stretchX, stretchY);
+                    
+                    const mouthImg = (useClosedMouth && selectedMouthClosedImgRef.current) 
+                        ? selectedMouthClosedImgRef.current 
+                        : selectedMouthImgRef.current;
+                    
+                    ctx.drawImage(mouthImg, -mw/2, -mh/2, mw, mh);
+                } else {
                     // 元の画像切り抜き：常に元の口を表示し、開いた時だけ上に上書き描画する
                     // まず元の口を描画
                     ctx.drawImage(img, mouth.x * cw, mouth.y * ch, mouth.width * cw, mouth.height * ch, -mw/2, -mh/2, mw, mh);
  
                     const openAmount = isMouthOpen ? Math.max(0.15, animatedJawOpen * 2.5) : 0;
                     if (openAmount > 0.15) {
-                        const gridExpr = gridExpressionCanvasesRef.current;
-                        const vowelKey = currentVowel || 'a';
-                        const customMouthCanvas = gridExpr && gridExpr.openMouths ? gridExpr.openMouths[vowelKey] : null;
-                        if (customMouthCanvas) {
-                            ctx.drawImage(customMouthCanvas, -mw/2, -mh/2, mw, mh);
-                        } else if (gridExpr && gridExpr.openMouth) {
-                            ctx.drawImage(gridExpr.openMouth, -mw/2, -mh/2, mw, mh);
-                        } else {
-                            const mouthH = (mh / 2) * openAmount;
-                            ctx.ellipse(0, 0, mw * 0.38, mouthH, 0, 0, Math.PI * 2);
-                            ctx.fill();
-     
-                            // 3. 舌（ピンク）を口の底に描画
-                            ctx.save();
-                            ctx.beginPath();
-                            ctx.ellipse(0, 0, mw * 0.38, mouthH, 0, 0, Math.PI * 2);
-                            ctx.clip();
-                            ctx.fillStyle = '#c96060';
-                            ctx.beginPath();
-                            ctx.ellipse(0, mouthH * 0.3, mw * 0.28, mouthH * 0.7, 0, 0, Math.PI * 2);
-                            ctx.fill();
-                            ctx.restore();
-                        }
+                        const mouthH = (mh / 2) * openAmount;
+                        
+                        // 口の中（暗い色）を描画
+                        ctx.fillStyle = '#441111';
+                        ctx.beginPath();
+                        ctx.ellipse(0, 0, mw * 0.38, mouthH, 0, 0, Math.PI * 2);
+                        ctx.fill();
+ 
+                        // 舌（ピンク）を口の底に描画
+                        ctx.save();
+                        ctx.beginPath();
+                        ctx.ellipse(0, 0, mw * 0.38, mouthH, 0, 0, Math.PI * 2);
+                        ctx.clip();
+                        ctx.fillStyle = '#c96060';
+                        ctx.beginPath();
+                        ctx.ellipse(0, mouthH * 0.3, mw * 0.28, mouthH * 0.7, 0, 0, Math.PI * 2);
+                        ctx.fill();
+                        ctx.restore();
                     }
                 }
                 ctx.restore();

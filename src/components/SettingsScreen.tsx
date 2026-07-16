@@ -37,8 +37,6 @@ const SettingsScreen: React.FC = () => {
   const [neckX, setNeckX] = useState<number>(50);
   const [removeWhiteBg, setRemoveWhiteBg] = useState<boolean>(true);
   const [imageGeneratorEngine, setImageGeneratorEngine] = useState<'free' | 'gemini'>('free');
-  const [generateGridSheet, setGenerateGridSheet] = useState<boolean>(false);
-  const [isProcessingGrid, setIsProcessingGrid] = useState<boolean>(false);
 
   // デフォルトプロファイルが読み込まれたら自動的にメイン画面へ遷移する（1セッションに1回のみ）
   useEffect(() => {
@@ -204,11 +202,7 @@ const SettingsScreen: React.FC = () => {
         const reader = new FileReader();
         reader.onloadend = () => {
           const srcUrl = reader.result as string;
-          if (generateGridSheet) {
-            setOriginalGridImage(srcUrl);
-          } else {
-            setOriginalGridImage(null);
-          }
+          setOriginalGridImage(null);
           setBaseImage(srcUrl);
           setPsdLayers(null);
           setAvatarCoords(null);
@@ -258,10 +252,6 @@ const SettingsScreen: React.FC = () => {
     setProcessStatus('AI画像を生成しています...');
     try {
       let finalPrompt = aiPrompt;
-      if (generateGridSheet) {
-        finalPrompt = `${aiPrompt}, 3x3 sprite sheet grid of expressions, 9 panels: Row 1 (top): left is normal face (open eyes, closed mouth), middle is eyes closed (closed mouth), right is mouth A shape (open eyes). Row 2 (middle): left is mouth I shape (open eyes), middle is mouth U shape (open eyes), right is mouth E shape (open eyes). Row 3 (bottom): left is mouth O shape (open eyes), middle is smiling face, right is laughing face. Same character design consistency across all panels, solid flat white background, front-facing digital anime style.`;
-      }
-
       let imgUrl = '';
       if (imageGeneratorEngine === 'free') {
         imgUrl = await generateFreeCharacterImage(finalPrompt);
@@ -270,11 +260,7 @@ const SettingsScreen: React.FC = () => {
       }
       setPsdLayers(null);
       setAvatarCoords(null);
-      if (generateGridSheet) {
-        setOriginalGridImage(imgUrl);
-      } else {
-        setOriginalGridImage(null);
-      }
+      setOriginalGridImage(null);
       setBaseImage(imgUrl);
       setProcessStatus('✅ AIアバター生成に成功しました！');
     } catch (err: any) {
@@ -291,7 +277,7 @@ const SettingsScreen: React.FC = () => {
       const img = new Image();
       img.src = baseImage;
       img.onload = () => {
-        const isGrid = generateGridSheet || !!originalGridImage;
+        const isGrid = false;
         const layers = splitImageIntoHeadAndBody(img, neckY, removeWhiteBg, isGrid);
         setPsdLayers(layers);
         
@@ -426,19 +412,6 @@ const SettingsScreen: React.FC = () => {
               disabled={imageGeneratorEngine === 'gemini' && !geminiApiKey}
             />
 
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-              <input
-                type="checkbox"
-                id="generate-grid-sheet"
-                checked={generateGridSheet}
-                onChange={(e) => setGenerateGridSheet(e.target.checked)}
-                style={{ cursor: 'pointer', width: '1rem', height: '1rem' }}
-              />
-              <label htmlFor="generate-grid-sheet" style={{ cursor: 'pointer', fontSize: '0.8rem', color: '#cbd5e1', userSelect: 'none' }}>
-                🌟 表情シートとして作成（閉じ目・口開きの自動切り出し対応）
-              </label>
-            </div>
-
             <button
               onClick={handleGenerateCharacter}
               disabled={isGenerating || !aiPrompt.trim() || (imageGeneratorEngine === 'gemini' && !geminiApiKey)}
@@ -454,9 +427,7 @@ const SettingsScreen: React.FC = () => {
               <button
                 type="button"
                 onClick={() => {
-                  const fullPrompt = generateGridSheet
-                    ? `${aiPrompt}, 3x3 sprite sheet grid of expressions, 9 panels: Row 1 (top): left is normal face (open eyes, closed mouth), middle is eyes closed (closed mouth), right is mouth A shape (open eyes). Row 2 (middle): left is mouth I shape (open eyes), middle is mouth U shape (open eyes), right is mouth E shape (open eyes). Row 3 (bottom): left is mouth O shape (open eyes), middle is smiling face, right is laughing face. Same character design consistency across all panels, solid flat white background, front-facing digital anime style.`
-                    : `${aiPrompt}, cute japanese 2d anime illustration style, beautiful anime face, cell-shaded, flat colors, front-facing bust-up portrait, looking at the viewer. Clear neck line without any accessories, simple hairstyle. Solid flat white background.`;
+                  const fullPrompt = `${aiPrompt}, cute japanese 2d anime illustration style, beautiful anime face, cell-shaded, flat colors, front-facing bust-up portrait, looking at the viewer. Clear neck line without any accessories, simple hairstyle. Solid flat white background.`;
                   window.open(`https://chatgpt.com/?q=${encodeURIComponent(fullPrompt)}`, '_blank');
                 }}
                 disabled={!aiPrompt.trim()}
@@ -468,9 +439,7 @@ const SettingsScreen: React.FC = () => {
               <button
                 type="button"
                 onClick={() => {
-                  const fullPrompt = generateGridSheet
-                    ? `${aiPrompt}, 3x3 sprite sheet grid of expressions, 9 panels: Row 1 (top): left is normal face (open eyes, closed mouth), middle is eyes closed (closed mouth), right is mouth A shape (open eyes). Row 2 (middle): left is mouth I shape (open eyes), middle is mouth U shape (open eyes), right is mouth E shape (open eyes). Row 3 (bottom): left is mouth O shape (open eyes), middle is smiling face, right is laughing face. Same character design consistency across all panels, solid flat white background, front-facing digital anime style.`
-                    : `${aiPrompt}, cute japanese 2d anime illustration style, beautiful anime face, cell-shaded, flat colors, front-facing bust-up portrait, looking at the viewer. Clear neck line without any accessories, simple hairstyle. Solid flat white background.`;
+                  const fullPrompt = `${aiPrompt}, cute japanese 2d anime illustration style, beautiful anime face, cell-shaded, flat colors, front-facing bust-up portrait, looking at the viewer. Clear neck line without any accessories, simple hairstyle. Solid flat white background.`;
                   window.open(`https://www.bing.com/images/create?q=${encodeURIComponent(fullPrompt)}`, '_blank');
                 }}
                 disabled={!aiPrompt.trim()}
@@ -519,74 +488,7 @@ const SettingsScreen: React.FC = () => {
           />
         </div>
 
-        {baseImage && (
-          <div style={{ marginTop: '0.75rem', display: 'flex', gap: '0.5rem' }}>
-            <button
-              type="button"
-              onClick={() => {
-                setGenerateGridSheet(false);
-                setOriginalGridImage(null);
-              }}
-              style={{
-                flex: 1,
-                padding: '0.5rem',
-                borderRadius: '8px',
-                border: 'none',
-                background: !generateGridSheet ? 'linear-gradient(135deg, #a855f7 0%, #6366f1 100%)' : 'rgba(255,255,255,0.1)',
-                color: 'white',
-                fontSize: '0.8rem',
-                fontWeight: 'bold',
-                cursor: 'pointer'
-              }}
-            >
-              🖼 通常の1枚絵
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setGenerateGridSheet(true);
-                if (baseImage) {
-                  setOriginalGridImage(baseImage);
-                }
-              }}
-              style={{
-                flex: 1,
-                padding: '0.5rem',
-                borderRadius: '8px',
-                border: 'none',
-                background: generateGridSheet ? 'linear-gradient(135deg, #a855f7 0%, #6366f1 100%)' : 'rgba(255,255,255,0.1)',
-                color: 'white',
-                fontSize: '0.8rem',
-                fontWeight: 'bold',
-                cursor: 'pointer'
-              }}
-            >
-              📊 3x3表情シート
-            </button>
-          </div>
-        )}
 
-        {baseImage && (
-          <div style={{ marginTop: '0.75rem' }}>
-            <button
-              type="button"
-              onClick={() => {
-                const promptText = `Please generate a 3x3 expression grid sheet of the exact same character shown in this reference image. Keep the character design, hair, clothes, and colors completely identical. 9 panels:
-- Row 1 (top): left is normal face (open eyes, closed mouth), middle is eyes closed (closed mouth), right is mouth "A" shape (open eyes)
-- Row 2 (middle): left is mouth "I" shape (open eyes), middle is mouth "U" shape (open eyes), right is mouth "E" shape (open eyes)
-- Row 3 (bottom): left is mouth "O" shape (open eyes), middle is smiling face, right is laughing face
-Same character design consistency across all panels, solid flat white background, front-facing digital anime style.`;
-                navigator.clipboard.writeText(promptText);
-                alert("「1枚絵から3x3表情シートを作るプロンプト」をクリップボードにコピーしました！\n\nこの後ChatGPTが開きますので、同じ画像ファイルをアップロードし、コピーしたテキストを貼り付けて送信してください。");
-                window.open("https://chatgpt.com/", "_blank");
-              }}
-              className="button-secondary"
-              style={{ width: '100%', padding: '0.6rem', fontSize: '0.8rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.25rem', border: '1px dashed #a855f7', color: '#c084fc' }}
-            >
-              🪄 この画像から3x3表情シートを作成 (チャッピー用)
-            </button>
-          </div>
-        )}
 
         {baseImage && psdLayers && (
           <div style={{ marginTop: '1.5rem' }}>
@@ -627,8 +529,8 @@ Same character design consistency across all panels, solid flat white background
                     position: 'absolute',
                     top: 0,
                     left: 0,
-                    width: generateGridSheet ? '300%' : '100%', 
-                    height: generateGridSheet ? '300%' : '100%', 
+                    width: '100%', 
+                    height: '100%', 
                     display: 'block',
                     objectFit: 'contain'
                   }} 
