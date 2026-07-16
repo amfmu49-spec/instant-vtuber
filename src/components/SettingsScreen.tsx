@@ -282,22 +282,48 @@ const SettingsScreen: React.FC = () => {
       const img = new Image();
       img.src = baseImage;
       img.onload = () => {
-        const layers = splitImageIntoHeadAndBody(img, neckY, removeWhiteBg);
-        setPsdLayers(layers);
-        
-        setAvatarCoords({
-          leftEye: avatarCoords?.leftEye ?? null,
-          rightEye: avatarCoords?.rightEye ?? null,
-          mouth: avatarCoords?.mouth ?? null,
-          mouthState: avatarCoords?.mouthState ?? 'closed',
-          eyeState: avatarCoords?.eyeState ?? 'open',
-          selectedEyeId: avatarCoords?.selectedEyeId,
-          selectedMouthId: avatarCoords?.selectedMouthId,
-          neckY: neckY,
-          neckX: neckX,
-          removeWhiteBg: removeWhiteBg
-        });
-        navigate('/main');
+        const processLayers = (targetImg: HTMLImageElement) => {
+          const layers = splitImageIntoHeadAndBody(targetImg, neckY, removeWhiteBg);
+          setPsdLayers(layers);
+          
+          setAvatarCoords({
+            leftEye: avatarCoords?.leftEye ?? null,
+            rightEye: avatarCoords?.rightEye ?? null,
+            mouth: avatarCoords?.mouth ?? null,
+            mouthState: avatarCoords?.mouthState ?? 'closed',
+            eyeState: avatarCoords?.eyeState ?? 'open',
+            selectedEyeId: avatarCoords?.selectedEyeId,
+            selectedMouthId: avatarCoords?.selectedMouthId,
+            neckY: neckY,
+            neckX: neckX,
+            removeWhiteBg: removeWhiteBg
+          });
+          navigate('/main');
+        };
+
+        if (generateGridSheet || originalGridImage) {
+          if (!originalGridImage) {
+            setOriginalGridImage(baseImage);
+          }
+          const canvas = document.createElement('canvas');
+          canvas.width = img.width / 3;
+          canvas.height = img.height / 3;
+          const ctx = canvas.getContext('2d');
+          if (ctx) {
+            ctx.drawImage(img, 0, 0, canvas.width, canvas.height, 0, 0, canvas.width, canvas.height);
+            const croppedDataUrl = canvas.toDataURL();
+            setBaseImage(croppedDataUrl);
+            
+            const croppedImg = new Image();
+            croppedImg.src = croppedDataUrl;
+            croppedImg.onload = () => {
+              processLayers(croppedImg);
+            };
+            return;
+          }
+        }
+
+        processLayers(img);
       };
     } else {
       if (avatarCoords) {
