@@ -1,0 +1,136 @@
+{
+  "eyes": [
+    {
+      "id": "eye_anime_tsuri",
+      "file": "eye_anime_tsuri.svg",
+      "name": "アニメ風 ツリ目"
+    },
+    {
+      "id": "eye_anime_tare",
+      "file": "eye_anime_tare.svg",
+      "name": "アニメ風 タレ目"
+    },
+    {
+      "id": "eye_real_thin",
+      "file": "eye_real_thin.svg",
+      "name": "リアル系 細目"
+    },
+    {
+      "id": "eye_cool_straight",
+      "file": "eye_cool_straight.svg",
+      "name": "クール 直線"
+    },
+    {
+      "id": "eye_anime_angry",
+      "file": "eye_anime_angry.svg",
+      "name": "怒り目"
+    },
+    {
+      "id": "eye_anime_sad",
+      "file": "eye_anime_sad.svg",
+      "name": "悲しみ目"
+    },
+    {
+      "id": "eye_anime_wide",
+      "file": "eye_anime_wide.svg",
+      "name": "見開き目"
+    },
+    {
+      "id": "eye_anime_heart",
+      "file": "eye_anime_heart.svg",
+      "name": "ハート目"
+    },
+    {
+      "id": "eye_anime_star",
+      "file": "eye_anime_star.svg",
+      "name": "星目"
+    },
+    {
+      "id": "eye_dot",
+      "file": "eye_dot.svg",
+      "name": "点目"
+    },
+    {
+      "id": "eye_line",
+      "file": "eye_line.svg",
+      "name": "ジト目 (線)"
+    },
+    {
+      "id": "eye_cross",
+      "file": "eye_cross.svg",
+      "name": "バツ目 (>_<)"
+    },
+    {
+      "id": "eye_spiral",
+      "file": "eye_spiral.svg",
+      "name": "ぐるぐる目"
+    },
+    {
+      "id": "eye_sparkle",
+      "file": "eye_sparkle.svg",
+      "name": "キラキラ目"
+    }
+  ],
+  "mouths": [
+    {
+      "id": "mouth_anime_smile_open",
+      "file": "mouth_anime_smile_open.svg",
+      "name": "アニメ風 笑顔"
+    },
+    {
+      "id": "mouth_anime_laugh_open",
+      "file": "mouth_anime_laugh_open.svg",
+      "name": "アニメ風 大笑い(キバ)"
+    },
+    {
+      "id": "mouth_cat_open",
+      "file": "mouth_cat_open.svg",
+      "name": "猫口"
+    },
+    {
+      "id": "mouth_real_open",
+      "file": "mouth_real_open.svg",
+      "name": "リアル系 開口"
+    },
+    {
+      "id": "mouth_surprised_open",
+      "file": "mouth_surprised_open.svg",
+      "name": "驚き (O型)"
+    },
+    {
+      "id": "mouth_anime_angry",
+      "file": "mouth_anime_angry.svg",
+      "name": "怒り口"
+    },
+    {
+      "id": "mouth_anime_sad",
+      "file": "mouth_anime_sad.svg",
+      "name": "への字口"
+    },
+    {
+      "id": "mouth_anime_triangle",
+      "file": "mouth_anime_triangle.svg",
+      "name": "三角口"
+    },
+    {
+      "id": "mouth_anime_w",
+      "file": "mouth_anime_w.svg",
+      "name": "ω口 (閉じ)"
+    },
+    {
+      "id": "mouth_anime_pout",
+      "file": "mouth_anime_pout.svg",
+      "name": "むくれ口"
+    },
+    {
+      "id": "mouth_anime_v",
+      "file": "mouth_anime_v.svg",
+      "name": "V字口"
+    },
+    {
+      "id": "mouth_animal_bird",
+      "file": "mouth_animal_bird.svg",
+      "name": "鳥のくちばし"
+    }
+  ]
+}

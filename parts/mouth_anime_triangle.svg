@@ -1,0 +1,3 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+<polygon points="20,30 80,30 50,80" fill="var(--mouth-bg, #661111)" stroke="currentColor" stroke-width="4" stroke-linejoin="round" />
+</svg>
