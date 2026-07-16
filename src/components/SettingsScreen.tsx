@@ -8,6 +8,21 @@ import { splitImageIntoHeadAndBody, parseGridSheet } from '../utils/avatarHelper
 import { FilesetResolver, FaceLandmarker } from '@mediapipe/tasks-vision';
 import type { PsdLayerData } from '../store/AppContext';
 
+const cropBaseImageToLeftTop = (srcUrl: string, callback: (croppedUrl: string) => void) => {
+  const img = new Image();
+  img.src = srcUrl;
+  img.onload = () => {
+    const canvas = document.createElement('canvas');
+    canvas.width = img.width / 3;
+    canvas.height = img.height / 3;
+    const ctx = canvas.getContext('2d');
+    if (ctx) {
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height, 0, 0, canvas.width, canvas.height);
+      callback(canvas.toDataURL());
+    }
+  };
+};
+
 const SettingsScreen: React.FC = () => {
   const { 
     geminiApiKey, setGeminiApiKey, 
@@ -203,8 +218,16 @@ const SettingsScreen: React.FC = () => {
       } else {
         const reader = new FileReader();
         reader.onloadend = () => {
-          setOriginalGridImage(null);
-          setBaseImage(reader.result as string);
+          const srcUrl = reader.result as string;
+          if (generateGridSheet) {
+            setOriginalGridImage(srcUrl);
+            cropBaseImageToLeftTop(srcUrl, (croppedUrl) => {
+              setBaseImage(croppedUrl);
+            });
+          } else {
+            setOriginalGridImage(null);
+            setBaseImage(srcUrl);
+          }
           setPsdLayers(null);
           setAvatarCoords(null);
           setProcessStatus('');
@@ -263,11 +286,19 @@ const SettingsScreen: React.FC = () => {
       } else {
         imgUrl = await generateCharacterImage(geminiApiKey, finalPrompt);
       }
-      setOriginalGridImage(null);
-      setBaseImage(imgUrl);
       setPsdLayers(null);
       setAvatarCoords(null);
-      setProcessStatus('✅ AIアバター生成に成功しました！');
+      if (generateGridSheet) {
+        setOriginalGridImage(imgUrl);
+        cropBaseImageToLeftTop(imgUrl, (croppedUrl) => {
+          setBaseImage(croppedUrl);
+          setProcessStatus('✅ AIアバター生成に成功しました！');
+        });
+      } else {
+        setOriginalGridImage(null);
+        setBaseImage(imgUrl);
+        setProcessStatus('✅ AIアバター生成に成功しました！');
+      }
     } catch (err: any) {
       console.error(err);
       alert(`生成エラー: ${err.message || '詳細不明'}`);
@@ -541,7 +572,10 @@ const SettingsScreen: React.FC = () => {
               type="button"
               onClick={() => {
                 setGenerateGridSheet(false);
-                setOriginalGridImage(null);
+                if (originalGridImage) {
+                  setBaseImage(originalGridImage);
+                  setOriginalGridImage(null);
+                }
               }}
               style={{
                 flex: 1,
@@ -559,7 +593,15 @@ const SettingsScreen: React.FC = () => {
             </button>
             <button
               type="button"
-              onClick={() => setGenerateGridSheet(true)}
+              onClick={() => {
+                setGenerateGridSheet(true);
+                if (baseImage && !originalGridImage) {
+                  setOriginalGridImage(baseImage);
+                  cropBaseImageToLeftTop(baseImage, (croppedUrl) => {
+                    setBaseImage(croppedUrl);
+                  });
+                }
+              }}
               style={{
                 flex: 1,
                 padding: '0.5rem',
