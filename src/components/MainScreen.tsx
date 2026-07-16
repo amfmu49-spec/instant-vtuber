@@ -1007,12 +1007,13 @@ const MainScreen: React.FC = () => {
       <div style={{ position: 'absolute', top: '1.5rem', left: '1.5rem', right: '1.5rem', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', pointerEvents: 'none', zIndex: 40 }}>
         <button 
           onClick={() => navigate('/settings')} 
-          style={{ pointerEvents: 'auto', display: 'flex', alignItems: 'center', justifyContent: 'center', width: '44px', height: '44px', background: 'rgba(15, 23, 42, 0.4)', backdropFilter: 'blur(8px)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '50%', color: 'white', cursor: 'pointer', transition: 'all 0.2s', boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)' }}
+          style={{ pointerEvents: 'auto', display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.6rem 1.2rem', background: 'rgba(15, 23, 42, 0.75)', backdropFilter: 'blur(8px)', border: '1px solid rgba(255,255,255,0.15)', borderRadius: '24px', color: 'white', cursor: 'pointer', transition: 'all 0.2s', boxShadow: '0 4px 12px rgba(0, 0, 0, 0.3)' }}
           title="設定に戻る"
-          onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(15, 23, 42, 0.6)'}
-          onMouseLeave={(e) => e.currentTarget.style.background = 'rgba(15, 23, 42, 0.4)'}
+          onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(15, 23, 42, 0.9)'}
+          onMouseLeave={(e) => e.currentTarget.style.background = 'rgba(15, 23, 42, 0.75)'}
         >
-          <ArrowLeft size={20} />
+          <ArrowLeft size={18} />
+          <span style={{ fontSize: '0.85rem', fontWeight: 500 }}>設定に戻る</span>
         </button>
 
         <div style={{ pointerEvents: 'auto', display: 'flex', alignItems: 'center', gap: '0.5rem', background: 'rgba(15, 23, 42, 0.4)', backdropFilter: 'blur(8px)', border: '1px solid rgba(255,255,255,0.1)', padding: '0.375rem 0.375rem 0.375rem 1rem', borderRadius: '24px', boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)' }}>
