@@ -1,0 +1,3 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+<path d="M 20,40 Q 50,60 80,40 Q 50,80 20,40" fill="var(--mouth-bg, #661111)" /><path d="M 20,40 Q 50,60 80,40" fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round" /><path d="M 35,60 Q 50,75 65,60 Q 50,55 35,60" fill="var(--tongue-color, #ff6666)" />
+</svg>
