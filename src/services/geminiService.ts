@@ -190,3 +190,33 @@ export const generateCharacterImage = async (apiKey: string, promptText: string)
     throw new Error(error.message || "画像の生成中にエラーが発生しました。");
   }
 };
+
+export const generateFreeCharacterImage = async (promptText: string): Promise<string> => {
+  if (!promptText) throw new Error("プロンプトが空です。");
+
+  // アニメ調の高品質な正面アバターを生成するプロンプト
+  const fullPrompt = `${promptText}, front-facing bust-up portrait, looking at the viewer. Clear neck line without any accessories, simple hairstyle. Solid flat white background, digital anime style, highly detailed.`;
+
+  try {
+    const encodedPrompt = encodeURIComponent(fullPrompt);
+    // ランダムなシード値を追加して毎回違う画像になるようにする
+    const seed = Math.floor(Math.random() * 1000000);
+    const url = `https://image.pollinations.ai/p/${encodedPrompt}?width=512&height=512&seed=${seed}&nologo=true&enhance=true`;
+
+    const response = await fetch(url);
+    if (!response.ok) {
+      throw new Error(`画像生成サービスエラー (HTTP ${response.status})`);
+    }
+
+    const blob = await response.blob();
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onloadend = () => resolve(reader.result as string);
+      reader.onerror = () => reject(new Error("画像の読み込みに失敗しました。"));
+      reader.readAsDataURL(blob);
+    });
+  } catch (error: any) {
+    console.error("Free Image Gen Error:", error);
+    throw new Error(error.message || "画像の生成中にエラーが発生しました。");
+  }
+};

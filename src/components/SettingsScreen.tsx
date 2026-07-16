@@ -2,7 +2,7 @@ import React, { useRef, useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAppContext } from '../store/AppContext';
 import { Camera, Upload, Key, Settings, Play, Sparkles } from 'lucide-react';
-import { analyzeAvatarImage, generateCharacterImage } from '../services/geminiService';
+import { analyzeAvatarImage, generateCharacterImage, generateFreeCharacterImage } from '../services/geminiService';
 import { readPsd } from 'ag-psd';
 import { splitImageIntoHeadAndBody } from '../utils/avatarHelper';
 import type { PsdLayerData } from '../store/AppContext';
@@ -33,6 +33,7 @@ const SettingsScreen: React.FC = () => {
   const [isGenerating, setIsGenerating] = useState<boolean>(false);
   const [neckY, setNeckY] = useState<number>(55);
   const [removeWhiteBg, setRemoveWhiteBg] = useState<boolean>(true);
+  const [imageGeneratorEngine, setImageGeneratorEngine] = useState<'free' | 'gemini'>('free');
 
   // デフォルトプロファイルが読み込まれたら自動的にメイン画面へ遷移する（1セッションに1回のみ）
   useEffect(() => {
@@ -228,15 +229,25 @@ const SettingsScreen: React.FC = () => {
   };
 
   const handleGenerateCharacter = async () => {
-    if (!geminiApiKey || !aiPrompt.trim()) return;
+    if (imageGeneratorEngine === 'gemini' && !geminiApiKey) {
+      alert('Gemini APIキーを入力してください。');
+      return;
+    }
+    if (!aiPrompt.trim()) return;
+
     setIsGenerating(true);
     setProcessStatus('AI画像を生成しています...');
     try {
-      const imgUrl = await generateCharacterImage(geminiApiKey, aiPrompt);
+      let imgUrl = '';
+      if (imageGeneratorEngine === 'free') {
+        imgUrl = await generateFreeCharacterImage(aiPrompt);
+      } else {
+        imgUrl = await generateCharacterImage(geminiApiKey, aiPrompt);
+      }
       setBaseImage(imgUrl);
       setPsdLayers(null);
       setAvatarCoords(null);
-      setProcessStatus('✅ AIキャラクター生成に成功しました！');
+      setProcessStatus('✅ AIアバター生成に成功しました！');
     } catch (err: any) {
       console.error(err);
       alert(`生成エラー: ${err.message || '詳細不明'}`);
@@ -317,28 +328,74 @@ const SettingsScreen: React.FC = () => {
           <h3 style={{ fontSize: '1rem', display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '1rem' }}>
             <Sparkles size={18} style={{ color: '#a855f7' }} /> AIアバター自動生成
           </h3>
+          
+          <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1rem' }}>
+            <button
+              onClick={() => setImageGeneratorEngine('free')}
+              style={{
+                flex: 1,
+                padding: '0.5rem',
+                borderRadius: '8px',
+                border: 'none',
+                background: imageGeneratorEngine === 'free' ? 'linear-gradient(135deg, #a855f7 0%, #6366f1 100%)' : 'rgba(255,255,255,0.1)',
+                color: 'white',
+                fontSize: '0.8rem',
+                fontWeight: 'bold',
+                cursor: 'pointer'
+              }}
+            >
+              無料エンジン (キー不要)
+            </button>
+            <button
+              onClick={() => setImageGeneratorEngine('gemini')}
+              style={{
+                flex: 1,
+                padding: '0.5rem',
+                borderRadius: '8px',
+                border: 'none',
+                background: imageGeneratorEngine === 'gemini' ? 'linear-gradient(135deg, #a855f7 0%, #6366f1 100%)' : 'rgba(255,255,255,0.1)',
+                color: 'white',
+                fontSize: '0.8rem',
+                fontWeight: 'bold',
+                cursor: 'pointer'
+              }}
+            >
+              Gemini / Imagen 3
+            </button>
+          </div>
+
           <p style={{ fontSize: '0.8rem', color: '#cbd5e1', marginBottom: '1rem' }}>
-            Gemini/ImagenのAIを使って、オリジナルのアバター画像をその場で作成します。（APIキーが必要です）
+            {imageGeneratorEngine === 'free' 
+              ? "APIキー不要でアニメ風のアバター画像を自動生成します。（英語のプロンプトの方が上手く生成されます）"
+              : "GeminiのImagen 3モデルで生成します。（APIキーとプロジェクトの課金連携が必要です）"
+            }
           </p>
+          
           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
             <textarea
               className="input-field"
               rows={2}
-              placeholder="例: 金髪の猫耳の女の子、魔法使いの衣装 (英語推奨: cute cat girl, blonde hair, wizard outfit)"
+              placeholder={imageGeneratorEngine === 'free'
+                ? "例: cute cat girl, blonde hair, wizard outfit, looking at camera"
+                : "例: cute cat girl, blonde hair, wizard outfit"
+              }
               value={aiPrompt}
               onChange={(e) => setAiPrompt(e.target.value)}
               style={{ resize: 'none' }}
-              disabled={!geminiApiKey}
+              disabled={imageGeneratorEngine === 'gemini' && !geminiApiKey}
             />
             <button
               onClick={handleGenerateCharacter}
-              disabled={isGenerating || !geminiApiKey || !aiPrompt.trim()}
+              disabled={isGenerating || !aiPrompt.trim() || (imageGeneratorEngine === 'gemini' && !geminiApiKey)}
               className="button-primary"
-              style={{ background: isGenerating || !geminiApiKey || !aiPrompt.trim() ? undefined : 'linear-gradient(135deg, #a855f7 0%, #6366f1 100%)', border: 'none', width: '100%', padding: '0.75rem' }}
+              style={{ background: isGenerating || !aiPrompt.trim() || (imageGeneratorEngine === 'gemini' && !geminiApiKey) ? undefined : 'linear-gradient(135deg, #a855f7 0%, #6366f1 100%)', border: 'none', width: '100%', padding: '0.75rem' }}
             >
-              {isGenerating ? 'アバター画像生成中 (約30秒)...' : 'AIキャラクターを生成する'}
+              {isGenerating 
+                ? 'アバター画像生成中...' 
+                : (imageGeneratorEngine === 'free' ? '無料でAIキャラクターを生成' : 'AIキャラクターを生成する')
+              }
             </button>
-            {!geminiApiKey && (
+            {imageGeneratorEngine === 'gemini' && !geminiApiKey && (
               <small style={{ color: '#ef4444' }}>※上の「基本設定」でGemini APIキーを入力してください。</small>
             )}
           </div>
