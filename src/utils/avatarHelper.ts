@@ -156,7 +156,8 @@ export const parseGridSheet = (
   const width = img.width;
   const height = img.height;
 
-  if (!multiFaceLandmarks || multiFaceLandmarks.length < 2) {
+  // 最低1つの顔（ベース顔）が見つかればOKとする
+  if (!multiFaceLandmarks || multiFaceLandmarks.length === 0) {
     return null;
   }
 
@@ -177,116 +178,68 @@ export const parseGridSheet = (
   }
   ctx.putImageData(imgData, 0, 0);
 
-  // 2. グリッドサイズ（2x2 か 3x3 か）を検出
-  let maxCol = 0;
-  let maxRow = 0;
-  multiFaceLandmarks.forEach((landmarks) => {
-    const avgX = landmarks.reduce((sum: number, pt: any) => sum + pt.x, 0) / landmarks.length;
-    const avgY = landmarks.reduce((sum: number, pt: any) => sum + pt.y, 0) / landmarks.length;
-    const col = Math.floor(avgX * 3);
-    const row = Math.floor(avgY * 3);
-    if (col > maxCol) maxCol = col;
-    if (row > maxRow) maxRow = row;
-  });
+  // ベース顔は最初に検出された顔（左上セルにあることを前提）
+  const baseFace = multiFaceLandmarks[0];
 
-  const is3x3 = (maxCol >= 2 || maxRow >= 2);
-  const gridCount = is3x3 ? 3 : 2;
-  const cellSize = 1.0 / gridCount;
+  // 3x3グリッドとみなしてセルサイズを計算
+  const gridCount = 3;
+  const cellSizeW = width / gridCount;
+  const cellSizeH = height / gridCount;
 
-  // 3. 各顔のグリッド座標セルマップを構築
-  const faceMap: Record<number, any> = {};
-  multiFaceLandmarks.forEach((landmarks) => {
-    const avgX = landmarks.reduce((sum: number, pt: any) => sum + pt.x, 0) / landmarks.length;
-    const avgY = landmarks.reduce((sum: number, pt: any) => sum + pt.y, 0) / landmarks.length;
-    const col = Math.min(gridCount - 1, Math.max(0, Math.floor(avgX * gridCount)));
-    const row = Math.min(gridCount - 1, Math.max(0, Math.floor(avgY * gridCount)));
-    const cellIndex = row * gridCount + col;
-    faceMap[cellIndex] = landmarks;
-  });
-
-  // ベース顔（通常顔）＝常に Cell 0 (左上)
-  let baseFace = faceMap[0];
-  if (!baseFace) {
-    baseFace = multiFaceLandmarks[0];
-  }
-
-  // 4. ベース顔が属するクアドラントを判定（基本的に左上 Cell 0）
   const baseFaceQuad = {
     left: 0,
     top: 0,
-    width: Math.floor(cellSize * width),
-    height: Math.floor(cellSize * height)
+    width: Math.floor(cellSizeW),
+    height: Math.floor(cellSizeH)
   };
 
-  const cropPart = (box: any) => {
-    const c = document.createElement('canvas');
-    c.width = box.width;
-    c.height = box.height;
-    const cCtx = c.getContext('2d');
-    if (cCtx) {
-      cCtx.drawImage(baseCanvas, box.left, box.top, box.width, box.height, 0, 0, box.width, box.height);
-    }
-    return c;
-  };
-
-  // 5. 閉じ目パーツの切り出し (Cell 1 ＝ 上段中央)
-  const closedEyesFace = faceMap[1];
-  let closedLeftEye: HTMLCanvasElement | null = null;
-  let closedRightEye: HTMLCanvasElement | null = null;
-
-  if (closedEyesFace) {
-    const closedEyesBoxLeft = getLandmarksBoundingBox(closedEyesFace, LEFT_EYE_INDICES, width, height, 0.35);
-    const closedEyesBoxRight = getLandmarksBoundingBox(closedEyesFace, RIGHT_EYE_INDICES, width, height, 0.35);
-    closedLeftEye = cropPart(closedEyesBoxLeft);
-    closedRightEye = cropPart(closedEyesBoxRight);
-    applyFeatherBox(closedLeftEye, Math.max(3, Math.floor(closedLeftEye.width * 0.15)));
-    applyFeatherBox(closedRightEye, Math.max(3, Math.floor(closedRightEye.width * 0.15)));
-  }
-
-  // 6. 口のあいうえおパーツの切り出し
-  const openMouths = {
-    a: null as HTMLCanvasElement | null,
-    i: null as HTMLCanvasElement | null,
-    u: null as HTMLCanvasElement | null,
-    e: null as HTMLCanvasElement | null,
-    o: null as HTMLCanvasElement | null
-  };
-
-  const cropMouth = (faceLandmarks: any) => {
-    if (!faceLandmarks) return null;
-    const box = getLandmarksBoundingBox(faceLandmarks, MOUTH_INDICES, width, height, 0.3);
-    const canvas = cropPart(box);
-    applyFeatherBox(canvas, Math.max(3, Math.floor(canvas.width * 0.15)));
-    return canvas;
-  };
-
-  if (is3x3) {
-    // 3x3グリッド配置：あいうえお口形に対応
-    // Cell 2 (右上) = あ, Cell 3 (中左) = い, Cell 4 (中央) = う, Cell 5 (中右) = え, Cell 6 (下左) = お
-    openMouths.a = cropMouth(faceMap[2]);
-    openMouths.i = cropMouth(faceMap[3]);
-    openMouths.u = cropMouth(faceMap[4]);
-    openMouths.e = cropMouth(faceMap[5]);
-    openMouths.o = cropMouth(faceMap[6]);
-  } else {
-    // 2x2グリッド配置：Cell 2 (左下) の共通口パーツを全母音に割り当て
-    const singleOpenMouth = cropMouth(faceMap[2]);
-    openMouths.a = singleOpenMouth;
-    openMouths.i = singleOpenMouth;
-    openMouths.u = singleOpenMouth;
-    openMouths.e = singleOpenMouth;
-    openMouths.o = singleOpenMouth;
-  }
-
-  // 7. ベース顔側での各パーツ位置（クアドラント基準の相対座標へ変換するため）
+  // 2. 左上セルの中での目と口の相対座標を取得
   const baseLeftEyeBox = getLandmarksBoundingBox(baseFace, LEFT_EYE_INDICES, width, height, 0.35);
   const baseRightEyeBox = getLandmarksBoundingBox(baseFace, RIGHT_EYE_INDICES, width, height, 0.35);
   const baseMouthBox = getLandmarksBoundingBox(baseFace, MOUTH_INDICES, width, height, 0.3);
 
+  // 3. 指定されたセル(col, row)から、ベース顔と全く同じ相対位置のBounding Boxを切り出す関数
+  const cropFromCell = (col: number, row: number, baseBox: any) => {
+    // 左上セルの左端からの相対距離（baseBoxが画像全体の絶対座標として返ってきている前提）
+    const relLeft = baseBox.left; 
+    const relTop = baseBox.top;
+    
+    // 切り出したいセルにおける絶対座標
+    const targetLeft = Math.floor(col * cellSizeW) + relLeft;
+    const targetTop = Math.floor(row * cellSizeH) + relTop;
+    
+    const c = document.createElement('canvas');
+    c.width = baseBox.width;
+    c.height = baseBox.height;
+    const cCtx = c.getContext('2d');
+    if (cCtx) {
+      cCtx.drawImage(
+        baseCanvas, 
+        targetLeft, targetTop, baseBox.width, baseBox.height, 
+        0, 0, baseBox.width, baseBox.height
+      );
+    }
+    applyFeatherBox(c, Math.max(3, Math.floor(c.width * 0.15)));
+    return c;
+  };
+
+  // 4. まばたきパーツ切り出し (Row:0, Col:1)
+  const closedLeftEye = cropFromCell(1, 0, baseLeftEyeBox);
+  const closedRightEye = cropFromCell(1, 0, baseRightEyeBox);
+
+  // 5. 口パーツ切り出し
+  const openMouths = {
+    a: cropFromCell(0, 1, baseMouthBox), // Row:1, Col:0
+    i: cropFromCell(1, 1, baseMouthBox), // Row:1, Col:1
+    u: cropFromCell(2, 1, baseMouthBox), // Row:1, Col:2
+    e: cropFromCell(0, 2, baseMouthBox), // Row:2, Col:0
+    o: cropFromCell(1, 2, baseMouthBox)  // Row:2, Col:1
+  };
+
   const toQuadRect = (box: any) => {
     return {
-      left: box.left - baseFaceQuad.left,
-      top: box.top - baseFaceQuad.top,
+      left: box.left,
+      top: box.top,
       width: box.width,
       height: box.height
     };
@@ -295,7 +248,7 @@ export const parseGridSheet = (
   return {
     closedLeftEye,
     closedRightEye,
-    openMouth: openMouths.a, // 後方互換性用
+    openMouth: openMouths.a,
     openMouths,
     baseFaceQuad,
     baseLeftEyeRect: toQuadRect(baseLeftEyeBox),

@@ -559,12 +559,14 @@ const MainScreen: React.FC = () => {
           
           try {
             const results = tempLandmarker.detect(gridImg);
-            if (results && results.faceLandmarks && results.faceLandmarks.length >= 2) {
-              console.log(`Grid expression sheet detected from context!`);
+            if (results && results.faceLandmarks && results.faceLandmarks.length >= 1) {
+              console.log(`Grid expression sheet detected from context (base face found)!`);
               const parsed = parseGridSheet(gridImg, results.faceLandmarks);
               if (parsed) {
                 gridExpressionCanvasesRef.current = parsed;
               }
+            } else {
+              console.warn("Base face not detected in the grid image.");
             }
           } catch (err) {
             console.error("Grid image landmarker failed:", err);
