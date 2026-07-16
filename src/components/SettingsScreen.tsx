@@ -127,7 +127,7 @@ const SettingsScreen: React.FC = () => {
                 mouthState: 'closed' as const,
                 eyeState: 'open' as const,
                 neckY: neckY,
-                neckX: 50,
+                neckX: neckX,
                 removeWhiteBg: removeWhiteBg
               };
               setAvatarCoords(newCoords);
@@ -338,7 +338,7 @@ const SettingsScreen: React.FC = () => {
     try {
       let finalPrompt = aiPrompt;
       if (generateGridSheet) {
-        finalPrompt = `${aiPrompt}, 2x2 sprite sheet grid, 4 panels: top-left is normal face, top-right is eyes closed, bottom-left is mouth open, bottom-right is smiling. Same character, solid flat white background.`;
+        finalPrompt = `${aiPrompt}, 3x3 sprite sheet grid of expressions, 9 panels: Row 1 (top): left is normal face (open eyes, closed mouth), middle is eyes closed (closed mouth), right is mouth A shape (open eyes). Row 2 (middle): left is mouth I shape (open eyes), middle is mouth U shape (open eyes), right is mouth E shape (open eyes). Row 3 (bottom): left is mouth O shape (open eyes), middle is smiling face, right is laughing face. Same character design consistency across all panels, solid flat white background, front-facing digital anime style.`;
       }
 
       let imgUrl = '';
@@ -529,7 +529,7 @@ const SettingsScreen: React.FC = () => {
                 type="button"
                 onClick={() => {
                   const fullPrompt = generateGridSheet
-                    ? `${aiPrompt}, 2x2 sprite sheet grid, 4 panels: top-left is normal face, top-right is eyes closed, bottom-left is mouth open, bottom-right is smiling. Same character, solid flat white background.`
+                    ? `${aiPrompt}, 3x3 sprite sheet grid of expressions, 9 panels: Row 1 (top): left is normal face (open eyes, closed mouth), middle is eyes closed (closed mouth), right is mouth A shape (open eyes). Row 2 (middle): left is mouth I shape (open eyes), middle is mouth U shape (open eyes), right is mouth E shape (open eyes). Row 3 (bottom): left is mouth O shape (open eyes), middle is smiling face, right is laughing face. Same character design consistency across all panels, solid flat white background, front-facing digital anime style.`
                     : `${aiPrompt}, cute japanese 2d anime illustration style, beautiful anime face, cell-shaded, flat colors, front-facing bust-up portrait, looking at the viewer. Clear neck line without any accessories, simple hairstyle. Solid flat white background.`;
                   window.open(`https://chatgpt.com/?q=${encodeURIComponent(fullPrompt)}`, '_blank');
                 }}
@@ -543,7 +543,7 @@ const SettingsScreen: React.FC = () => {
                 type="button"
                 onClick={() => {
                   const fullPrompt = generateGridSheet
-                    ? `${aiPrompt}, 2x2 sprite sheet grid, 4 panels: top-left is normal face, top-right is eyes closed, bottom-left is mouth open, bottom-right is smiling. Same character, solid flat white background.`
+                    ? `${aiPrompt}, 3x3 sprite sheet grid of expressions, 9 panels: Row 1 (top): left is normal face (open eyes, closed mouth), middle is eyes closed (closed mouth), right is mouth A shape (open eyes). Row 2 (middle): left is mouth I shape (open eyes), middle is mouth U shape (open eyes), right is mouth E shape (open eyes). Row 3 (bottom): left is mouth O shape (open eyes), middle is smiling face, right is laughing face. Same character design consistency across all panels, solid flat white background, front-facing digital anime style.`
                     : `${aiPrompt}, cute japanese 2d anime illustration style, beautiful anime face, cell-shaded, flat colors, front-facing bust-up portrait, looking at the viewer. Clear neck line without any accessories, simple hairstyle. Solid flat white background.`;
                   window.open(`https://www.bing.com/images/create?q=${encodeURIComponent(fullPrompt)}`, '_blank');
                 }}

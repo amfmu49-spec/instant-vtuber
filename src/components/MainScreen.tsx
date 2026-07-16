@@ -992,7 +992,11 @@ const MainScreen: React.FC = () => {
                     const openAmount = isMouthOpen ? Math.max(0.15, animatedJawOpen * 2.5) : 0;
                     if (openAmount > 0.15) {
                         const gridExpr = gridExpressionCanvasesRef.current;
-                        if (gridExpr && gridExpr.openMouth) {
+                        const vowelKey = currentVowel || 'a';
+                        const customMouthCanvas = gridExpr && gridExpr.openMouths ? gridExpr.openMouths[vowelKey] : null;
+                        if (customMouthCanvas) {
+                            ctx.drawImage(customMouthCanvas, -mw/2, -mh/2, mw, mh);
+                        } else if (gridExpr && gridExpr.openMouth) {
                             ctx.drawImage(gridExpr.openMouth, -mw/2, -mh/2, mw, mh);
                         } else {
                             const mouthH = (mh / 2) * openAmount;
