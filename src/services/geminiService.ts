@@ -11,29 +11,23 @@ export const analyzeAvatarImage = async (apiKey: string, base64Image: string): P
     const base64Data = base64Image.split(',')[1];
     const mimeType = base64Image.split(';')[0].split(':')[1] || 'image/jpeg';
 
-    const partsLibraryRes = await fetch('/parts/library.json');
+    const partsLibraryRes = await fetch(`${import.meta.env.BASE_URL}parts/library.json`);
     const partsLibrary = await partsLibraryRes.json();
 
     const prompt = `
-この画像を解析し、キャラクターの顔のパーツの位置（バウンディングボックス）と状態、および最適なストックパーツをJSONで返してください。
+この画像を解析し、キャラクターの顔のパーツの位置（バウンディングボックス）と状態をJSONで返してください。
 画像の左上を(0, 0)、右下を(1, 1)とする相対座標（0.0〜1.0）で答えてください。
+パーツを馴染ませるために「肌のベース色（skinColorHex）」と「まつげ/線の色（lashColorHex）」を画像から抽出してください。
 
-【ストックパーツ選択の指示】
-提供された以下のストックパーツのリスト（JSON形式）から、このキャラクターの画風、目の形、雰囲気に最も似合う「目のID」と「口のID」を選んでください。
-また、パーツを馴染ませるために「肌のベース色（skinColorHex）」と「まつげ/線の色（lashColorHex）」を画像から抽出してください。
-
-[ストックパーツリスト]
-${JSON.stringify(partsLibrary, null, 2)}
-
-必ず以下のJSON形式のみを出力してください。
+必ず以下のJSON形式のみを出力してください。初期状態ではパーツ選択は行わず（空文字）、元の画像の切り抜きを使用します。
 {
   "leftEye": { "x": 0.0, "y": 0.0, "width": 0.0, "height": 0.0 },
   "rightEye": { "x": 0.0, "y": 0.0, "width": 0.0, "height": 0.0 },
   "mouth": { "x": 0.0, "y": 0.0, "width": 0.0, "height": 0.0 },
   "mouthState": "open",
   "eyeState": "open",
-  "selectedEyeId": "eye_anime_tsuri",
-  "selectedMouthId": "mouth_anime_smile_open",
+  "selectedEyeId": "",
+  "selectedMouthId": "",
   "skinColorHex": "#ffcccc",
   "lashColorHex": "#222222"
 }
@@ -119,5 +113,51 @@ ${JSON.stringify(partsLibrary, null, 2)}
   } catch (error: any) {
     console.error("Gemini API Error:", error);
     throw new Error(error.message || "画像の解析中に予期せぬエラーが発生しました");
+  }
+};
+
+export const generateCharacterImage = async (apiKey: string, promptText: string): Promise<string> => {
+  if (!apiKey || !promptText) throw new Error("APIキーまたはプロンプトが空です。");
+
+  // 切り抜きやすさとアバターとしての見栄えを保証するプロンプトテンプレート
+  const fullPrompt = `${promptText}, front-facing bust-up portrait, looking at the viewer. Clear neck line without any accessories, simple hairstyle. Solid flat white background, digital anime style.`;
+
+  try {
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/imagen-3.0-generate-002:predict?key=${apiKey}`;
+    const response = await fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        instances: [
+          {
+            prompt: fullPrompt
+          }
+        ],
+        parameters: {
+          sampleCount: 1,
+          outputMimeType: "image/png",
+          aspectRatio: "1:1"
+        }
+      })
+    });
+
+    if (!response.ok) {
+      const errJson = await response.json().catch(() => ({}));
+      const errMsg = errJson.error?.message || `HTTP ${response.status} エラー`;
+      throw new Error(errMsg);
+    }
+
+    const result = await response.json();
+    const base64Bytes = result.predictions?.[0]?.bytesBase64Encoded;
+    if (!base64Bytes) {
+      throw new Error("画像データの取得に失敗しました。レスポンスが空です。");
+    }
+
+    return `data:image/png;base64,${base64Bytes}`;
+  } catch (error: any) {
+    console.error("Imagen API Error:", error);
+    throw new Error(error.message || "画像の生成中にエラーが発生しました。");
   }
 };

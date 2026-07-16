@@ -18,7 +18,7 @@ const getVowelsFromText = (text: string): ('a' | 'i' | 'u' | 'e' | 'o' | null)[]
 };
 
 const MainScreen: React.FC = () => {
-  const { baseImage, sensitivity, avatarCoords, setAvatarCoords, customSkinColors, setCustomSkinColors, saveProfile, currentProfileName } = useAppContext();
+  const { baseImage, sensitivity, avatarCoords, setAvatarCoords, customSkinColors, setCustomSkinColors, saveProfile, currentProfileName, psdLayers } = useAppContext();
   const navigate = useNavigate();
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -64,7 +64,7 @@ const MainScreen: React.FC = () => {
   const [candidates, setCandidates] = useState<any[]>([]);
 
   useEffect(() => {
-    fetch('/parts/library.json').then(r => r.json()).then(setPartsLibrary).catch(() => {});
+    fetch(`${import.meta.env.BASE_URL}parts/library.json`).then(r => r.json()).then(setPartsLibrary).catch(() => {});
   }, []);
   
   const [sampledColors, setSampledColors] = useState<{ leftEye: string, rightEye: string, mouth: string }>({ leftEye: '#ffcccc', rightEye: '#ffcccc', mouth: '#ffcccc' });
@@ -86,7 +86,7 @@ const MainScreen: React.FC = () => {
   useEffect(() => {
     const loadSvg = async (filename: string, replacements: Record<string, string>) => {
       try {
-        const res = await fetch(`/parts/${filename}.svg`);
+        const res = await fetch(`${import.meta.env.BASE_URL}parts/${filename}.svg`);
         let svgText = await res.text();
         for (const [key, value] of Object.entries(replacements)) {
             // Replace literal strings like 'currentColor' and 'var(--mouth-bg, #661111)'
@@ -109,6 +109,8 @@ const MainScreen: React.FC = () => {
         loadSvg(avatarCoords.selectedEyeId, {
           'currentColor': avatarCoords.lashColorHex || '#222222'
         }).then(img => { if (img) selectedEyeImgRef.current = img; });
+    } else {
+        selectedEyeImgRef.current = null;
     }
     if (avatarCoords?.selectedMouthId) {
         loadSvg(avatarCoords.selectedMouthId, {
@@ -117,6 +119,8 @@ const MainScreen: React.FC = () => {
           'var(--mouth-bg, #441111)': '#441111',
           'var(--tongue-color, #ff6666)': '#b54141',
         }).then(img => { if (img) selectedMouthImgRef.current = img; });
+    } else {
+        selectedMouthImgRef.current = null;
     }
   }, [avatarCoords]);
   
@@ -134,11 +138,14 @@ const MainScreen: React.FC = () => {
   const avatarCoordsRef = useRef(avatarCoords);
   const sensitivityRef = useRef(sensitivity);
   const customSkinColorsRef = useRef(customSkinColors);
+  const psdLayersRef = useRef(psdLayers);
   useEffect(() => {
     avatarCoordsRef.current = avatarCoords;
     sensitivityRef.current = sensitivity;
     customSkinColorsRef.current = customSkinColors;
-  }, [avatarCoords, sensitivity, customSkinColors]);
+    partScalesRef.current = partScales;
+    psdLayersRef.current = psdLayers;
+  }, [avatarCoords, sensitivity, customSkinColors, partScales, psdLayers]);
 
   useEffect(() => {
     isSpeakingRef.current = isSpeaking;
@@ -480,12 +487,45 @@ const MainScreen: React.FC = () => {
         canvas.height = img.height;
       }
       ctx.clearRect(0, 0, canvas.width, canvas.height);
-      ctx.drawImage(img, 0, 0, img.width, img.height);
+      const layers = psdLayersRef.current;
+      if (layers && layers.length > 0) {
+        layers.forEach(layer => {
+          if (layer.visible && layer.canvas) {
+            if (layer.blendMode) {
+                let op = 'source-over';
+                switch (layer.blendMode) {
+                    case 'multiply': op = 'multiply'; break;
+                    case 'screen': op = 'screen'; break;
+                    case 'linear dodge': op = 'lighter'; break;
+                    case 'color dodge': op = 'color-dodge'; break;
+                    case 'overlay': op = 'overlay'; break;
+                    case 'darken': op = 'darken'; break;
+                    case 'lighten': op = 'lighten'; break;
+                    case 'color burn': op = 'color-burn'; break;
+                    case 'hard light': op = 'hard-light'; break;
+                    case 'soft light': op = 'soft-light'; break;
+                    case 'difference': op = 'difference'; break;
+                    case 'exclusion': op = 'exclusion'; break;
+                    case 'subtract': op = 'difference'; break;
+                }
+                ctx.globalCompositeOperation = op as GlobalCompositeOperation;
+            }
+            if (layer.opacity !== undefined) {
+                ctx.globalAlpha = layer.opacity;
+            }
+            ctx.drawImage(layer.canvas, layer.left, layer.top);
+            ctx.globalCompositeOperation = 'source-over';
+            ctx.globalAlpha = 1.0;
+          }
+        });
+      } else {
+        ctx.drawImage(img, 0, 0, img.width, img.height);
+      }
       
       try {
         const pixel = ctx.getImageData(0, 0, 1, 1).data;
         if (pixel[3] > 0) {
-          const hex = "#" + ((1 << 24) + (pixel[0] << 16) + (pixel[1] << 8) + pixel[2]).toString(16).slice(1);
+          const hex = "#" + ((1 << 24) + (pixel[0] << 16) + (pixel[1] << 8) + pixel[2]).toString(16).slice(1).padStart(6, '0');
           setBgColor(hex);
         }
       } catch (e) {}
@@ -548,6 +588,7 @@ const MainScreen: React.FC = () => {
       const ch = canvas.height;
 
       if (results.faceLandmarks && results.faceLandmarks.length > 0) {
+        setIsTracking(true);
         const landmarks = results.faceLandmarks[0];
         const leftEye = landmarks[33];
         const rightEye = landmarks[263];
@@ -556,6 +597,11 @@ const MainScreen: React.FC = () => {
         currentTargetAngle = Math.atan2(leftEye.y - rightEye.y, Math.abs(leftEye.x - rightEye.x));
         currentTargetX = (0.5 - nose.x) * cw * 0.05;
         currentTargetY = (nose.y - 0.5) * ch * 0.05;
+      } else {
+        setIsTracking(false);
+        currentTargetAngle = 0;
+        currentTargetX = 0;
+        currentTargetY = 0;
       }
 
       if (!showToolsRef.current) {
@@ -569,17 +615,71 @@ const MainScreen: React.FC = () => {
         smoothedY += (0 - smoothedY) * 0.1;
       }
 
-      ctx.clearRect(0, 0, cw, ch);
-      ctx.save();
-      const pivotY = ch * 0.65;
-      ctx.translate(cw / 2 + smoothedX, pivotY + smoothedY);
-      ctx.rotate(smoothedAngle);
-      ctx.translate(-cw / 2, -pivotY);
-      ctx.drawImage(img, 0, 0, img.width, img.height);
-
       const coords = avatarCoordsRef.current;
       const sens = sensitivityRef.current;
       const customColors = customSkinColorsRef.current;
+      let isEyeClosed = false;
+      let isMouthOpen = false;
+      let animatedJawOpen = 0;
+      let currentVowel: 'a' | 'i' | 'u' | 'e' | 'o' | null = null;
+
+      if (results.faceBlendshapes && results.faceBlendshapes.length > 0) {
+        const blendshapes = results.faceBlendshapes[0].categories;
+        const eyeBlinkLeft = blendshapes.find((b: any) => b.categoryName === 'eyeBlinkLeft')?.score || 0;
+        const eyeBlinkRight = blendshapes.find((b: any) => b.categoryName === 'eyeBlinkRight')?.score || 0;
+        const jawOpen = blendshapes.find((b: any) => b.categoryName === 'jawOpen')?.score || 0;
+        const mouthSmile = Math.max(blendshapes.find((b: any) => b.categoryName === 'mouthSmileLeft')?.score || 0, blendshapes.find((b: any) => b.categoryName === 'mouthSmileRight')?.score || 0);
+        const mouthPucker = blendshapes.find((b: any) => b.categoryName === 'mouthPucker')?.score || 0;
+        const mouthFunnel = blendshapes.find((b: any) => b.categoryName === 'mouthFunnel')?.score || 0;
+        const mouthStretch = Math.max(blendshapes.find((b: any) => b.categoryName === 'mouthStretchLeft')?.score || 0, blendshapes.find((b: any) => b.categoryName === 'mouthStretchRight')?.score || 0);
+        
+        let lipDistance = 0;
+        if (results.faceLandmarks && results.faceLandmarks.length > 0) {
+           const lm = results.faceLandmarks[0];
+           lipDistance = Math.abs(lm[14].y - lm[13].y);
+        }
+
+        isEyeClosed = eyeBlinkLeft > sens.eyeClose || eyeBlinkRight > sens.eyeClose;
+        isMouthOpen = jawOpen > sens.mouthOpen;
+        animatedJawOpen = jawOpen;
+
+        if (isMouthOpen || mouthPucker > 0.1 || mouthFunnel > 0.1 || (lipDistance > 0.005 && (mouthSmile > 0.1 || mouthStretch > 0.1))) {
+           isMouthOpen = true; 
+           if (mouthSmile > 0.1 || mouthStretch > 0.1) {
+              currentVowel = jawOpen > 0.10 ? 'e' : 'i';
+              animatedJawOpen = Math.max(jawOpen, 0.15);
+           }
+           else if (mouthPucker > 0.1) {
+              currentVowel = 'u';
+              animatedJawOpen = Math.max(jawOpen, 0.15);
+           }
+           else if (mouthFunnel > 0.1) {
+              currentVowel = 'o';
+              animatedJawOpen = Math.max(jawOpen, 0.15);
+           }
+           else if (jawOpen > sens.mouthOpen) {
+              currentVowel = 'a';
+           }
+        }
+      }
+
+      if (isSpeakingRef.current) {
+         const time = performance.now();
+         const elapsed = time - ttsStartTimeRef.current;
+         const vowels = ttsVowelsRef.current;
+         const vowelIndex = Math.floor(elapsed / 150);
+         if (vowels && vowels.length > 0) {
+           currentVowel = vowels[Math.min(vowelIndex, vowels.length - 1)];
+           isMouthOpen = currentVowel !== null;
+           animatedJawOpen = currentVowel ? (Math.sin(elapsed / 30) * 0.15 + 0.35) : 0;
+         } else {
+           const lipSyncValue = (Math.sin(time / 50) * 0.5 + 0.5) * 0.4;
+           animatedJawOpen = Math.max(animatedJawOpen, lipSyncValue);
+           isMouthOpen = animatedJawOpen > 0.1;
+         }
+      }
+
+      setIsTracking(true);
 
       if (coords && !hasSampledColors && img.width > 0) {
          const tempCanvas = document.createElement('canvas');
@@ -605,48 +705,90 @@ const MainScreen: React.FC = () => {
          }
       }
 
-      if (results.faceBlendshapes && results.faceBlendshapes.length > 0) {
-        const blendshapes = results.faceBlendshapes[0].categories;
-        const eyeBlinkLeft = blendshapes.find((b: any) => b.categoryName === 'eyeBlinkLeft')?.score || 0;
-        const eyeBlinkRight = blendshapes.find((b: any) => b.categoryName === 'eyeBlinkRight')?.score || 0;
-        const jawOpen = blendshapes.find((b: any) => b.categoryName === 'jawOpen')?.score || 0;
-        
-        const mouthSmile = Math.max(blendshapes.find((b: any) => b.categoryName === 'mouthSmileLeft')?.score || 0, blendshapes.find((b: any) => b.categoryName === 'mouthSmileRight')?.score || 0);
-        const mouthPucker = blendshapes.find((b: any) => b.categoryName === 'mouthPucker')?.score || 0;
-        const mouthFunnel = blendshapes.find((b: any) => b.categoryName === 'mouthFunnel')?.score || 0;
-        const mouthStretch = Math.max(blendshapes.find((b: any) => b.categoryName === 'mouthStretchLeft')?.score || 0, blendshapes.find((b: any) => b.categoryName === 'mouthStretchRight')?.score || 0);
-        
-        let lipDistance = 0;
-        if (results.faceLandmarks && results.faceLandmarks.length > 0) {
-           const lm = results.faceLandmarks[0];
-           lipDistance = Math.abs(lm[14].y - lm[13].y); // 上唇下端と下唇上端の距離
-        }
+      ctx.clearRect(0, 0, cw, ch);
+      
+      const layers = psdLayersRef.current;
+      let pivotY = ch * 0.65;
+      if (coords && coords.neckY !== undefined) {
+          pivotY = (coords.neckY / 100) * ch;
+      }
+      
+      if (layers && layers.length > 0) {
+          layers.forEach(layer => {
+              if (!layer.visible || !layer.canvas) return;
+              
+              const name = layer.name.toLowerCase();
+              const isHair = name.includes('髪') || name.includes('hair');
+              const isHead = name.includes('頭') || name.includes('顔') || name.includes('head') || name.includes('face') || name.includes('目') || name.includes('口') || name.includes('eye') || name.includes('mouth');
+              const isEyeOpenLayer = name.includes('目開') || name.includes('eye_open');
+              const isEyeClosedLayer = name.includes('目閉') || name.includes('eye_close');
+              const isMouthOpenLayer = name.includes('口開') || name.includes('mouth_open');
+              const isMouthClosedLayer = name.includes('口閉') || name.includes('mouth_close');
+              
+              if (isEyeOpenLayer && isEyeClosed) return;
+              if (isEyeClosedLayer && !isEyeClosed) return;
+              if (isMouthOpenLayer && !isMouthOpen) return;
+              if (isMouthClosedLayer && isMouthOpen) return;
+              
+              ctx.save();
+              if (isHair) {
+                  const swayX = smoothedX * 1.5;
+                  const swayY = smoothedY * 1.2;
+                  const swayAngle = smoothedAngle * 1.2;
+                  ctx.translate(cw / 2 + swayX, pivotY + swayY);
+                  ctx.rotate(swayAngle);
+                  ctx.translate(-cw / 2, -pivotY);
+              } else if (isHead) {
+                  ctx.translate(cw / 2 + smoothedX, pivotY + smoothedY);
+                  ctx.rotate(smoothedAngle);
+                  ctx.translate(-cw / 2, -pivotY);
+              } else {
+                  // Body sway
+                  ctx.translate(cw / 2 + smoothedX * 0.1, pivotY + smoothedY * 0.1);
+                  ctx.rotate(smoothedAngle * 0.1);
+                  ctx.translate(-cw / 2, -pivotY);
+              }
+              if (layer.blendMode) {
+                  let op = 'source-over';
+                  switch (layer.blendMode) {
+                      case 'multiply': op = 'multiply'; break;
+                      case 'screen': op = 'screen'; break;
+                      case 'linear dodge': op = 'lighter'; break;
+                      case 'color dodge': op = 'color-dodge'; break;
+                      case 'overlay': op = 'overlay'; break;
+                      case 'darken': op = 'darken'; break;
+                      case 'lighten': op = 'lighten'; break;
+                      case 'color burn': op = 'color-burn'; break;
+                      case 'hard light': op = 'hard-light'; break;
+                      case 'soft light': op = 'soft-light'; break;
+                      case 'difference': op = 'difference'; break;
+                      case 'exclusion': op = 'exclusion'; break;
+                      case 'subtract': op = 'difference'; break; // CanvasAPIにはsubtractがないため近いものを指定
+                  }
+                  ctx.globalCompositeOperation = op as GlobalCompositeOperation;
+              }
 
-        const isEyeClosed = eyeBlinkLeft > sens.eyeClose || eyeBlinkRight > sens.eyeClose;
-        let isMouthOpen = jawOpen > sens.mouthOpen;
-        let animatedJawOpen = jawOpen;
-        let currentVowel: 'a' | 'i' | 'u' | 'e' | 'o' | null = null;
+              if (layer.opacity !== undefined) {
+                  ctx.globalAlpha = layer.opacity;
+              }
 
-        // Vowel detection: 顎が開いている、または「う」「お」の口をしている、または（唇が少しでも開いていて「い」「え」の形をしている）
-        if (isMouthOpen || mouthPucker > 0.2 || mouthFunnel > 0.2 || (lipDistance > 0.005 && (mouthSmile > 0.1 || mouthStretch > 0.1))) {
-           isMouthOpen = true; 
-           
-           if (mouthSmile > 0.1 || mouthStretch > 0.1) {
-              currentVowel = jawOpen > 0.10 ? 'e' : 'i';
-              animatedJawOpen = Math.max(jawOpen, 0.15); // 最低限の開きを確保
-           }
-           else if (mouthPucker > 0.2) {
-              currentVowel = 'u';
-              animatedJawOpen = Math.max(jawOpen, 0.2);
-           }
-           else if (mouthFunnel > 0.2) {
-              currentVowel = 'o';
-              animatedJawOpen = Math.max(jawOpen, 0.2);
-           }
-           else if (jawOpen > sens.mouthOpen) {
-              currentVowel = 'a';
-           }
-        }
+              ctx.drawImage(layer.canvas, layer.left, layer.top);
+              ctx.globalCompositeOperation = 'source-over';
+              ctx.globalAlpha = 1.0;
+              ctx.restore();
+          });
+          
+          ctx.save();
+          ctx.translate(cw / 2 + smoothedX, pivotY + smoothedY);
+          ctx.rotate(smoothedAngle);
+          ctx.translate(-cw / 2, -pivotY);
+      } else {
+          ctx.save();
+          ctx.translate(cw / 2 + smoothedX, pivotY + smoothedY);
+          ctx.rotate(smoothedAngle);
+          ctx.translate(-cw / 2, -pivotY);
+          ctx.drawImage(img, 0, 0, img.width, img.height);
+      }
 
         if (isSpeakingRef.current) {
            const time = performance.now();
@@ -656,7 +798,7 @@ const MainScreen: React.FC = () => {
            if (vowels && vowels.length > 0) {
              currentVowel = vowels[Math.min(vowelIndex, vowels.length - 1)];
              isMouthOpen = currentVowel !== null;
-             animatedJawOpen = currentVowel ? 0.5 : 0;
+             animatedJawOpen = currentVowel ? (Math.sin(elapsed / 30) * 0.15 + 0.35) : 0;
            } else {
              const lipSyncValue = (Math.sin(time / 50) * 0.5 + 0.5) * 0.4;
              animatedJawOpen = Math.max(jawOpen, lipSyncValue);
@@ -678,40 +820,60 @@ const MainScreen: React.FC = () => {
             const y = eye.y * ch;
             const w = eye.width * cw * sc;
             const h = eye.height * ch * sc;
-            const ox = x + (eye.width * cw - w) / 2; // center after scale
+            const ox = x + (eye.width * cw - w) / 2;
             const oy = y + (eye.height * ch - h) / 2;
-            const skin = customColors?.[isLeft ? 'leftEye' : 'rightEye'] || sampledColorsRef.current[isLeft ? 'leftEye' : 'rightEye'];
             
-            ctx.save();
-            ctx.filter = `blur(${Math.max(6, h * 0.25)}px)`;
-            ctx.fillStyle = skin;
-            ctx.beginPath();
-            ctx.ellipse(ox + w/2, oy + h/2, w/2 + 5, h/2 + 5, 0, 0, Math.PI * 2);
-            ctx.fill();
-            ctx.restore();
-            
-            // Semi-transparent while this specific part is being dragged
             const thisDragged = isDraggingRef.current && selectedPartRef.current === (isLeft ? 'leftEye' : 'rightEye');
             ctx.save();
             if (thisDragged) ctx.globalAlpha = 0.35;
+            if (coords && coords.neckY !== undefined) {
+                ctx.translate(cw / 2 + smoothedX, pivotY + smoothedY);
+                ctx.rotate(smoothedAngle);
+                ctx.translate(-cw / 2, -pivotY);
+            }
             ctx.translate(ox + w/2 + pX, oy + h/2 + pY);
-            if (isClosed) {
-                if (selectedEyeImgRef.current) {
-                    // Mirror the SVG for the left eye (right eye is the "base")
-                    if (isLeft) ctx.scale(-1, 1);
-                    ctx.drawImage(selectedEyeImgRef.current, -w/2, -h/2, w, h);
-                } else {
-                    // Fallback
+
+            if (selectedEyeImgRef.current) {
+                // カスタムSVGパーツを使う場合は肌色下地を先に描く
+                const skin = customColors?.[isLeft ? 'leftEye' : 'rightEye'] || sampledColorsRef.current[isLeft ? 'leftEye' : 'rightEye'];
+                ctx.save();
+                ctx.filter = `blur(${Math.max(6, h * 0.25)}px)`;
+                ctx.fillStyle = skin;
+                ctx.beginPath();
+                ctx.ellipse(0, 0, w/2 + 5, h/2 + 5, 0, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.restore();
+
+                if (!isLeft) ctx.scale(-1, 1);
+                if (isClosed) {
+                    ctx.scale(1, 0.15);
+                }
+                ctx.drawImage(selectedEyeImgRef.current, -w/2, -h/2, w, h);
+            } else {
+                // 元の画像を切り抜いて使う場合
+                if (isClosed) {
+                    // 閉じた時：肌色で元の目を隠してからU字ラインを描く
+                    const skin = customColors?.[isLeft ? 'leftEye' : 'rightEye'] || sampledColorsRef.current[isLeft ? 'leftEye' : 'rightEye'];
+                    ctx.save();
+                    ctx.filter = `blur(${Math.max(4, h * 0.2)}px)`;
+                    ctx.fillStyle = skin;
+                    ctx.beginPath();
+                    ctx.ellipse(0, 0, w/2 + 2, h/2 + 2, 0, 0, Math.PI * 2);
+                    ctx.fill();
+                    ctx.restore();
+
                     const lashColor = coords?.lashColorHex || '#222222';
                     ctx.strokeStyle = lashColor;
-                    ctx.lineWidth = Math.max(0.5, h * 0.04);
+                    ctx.lineWidth = Math.max(1, h * 0.02);
+                    ctx.lineCap = 'round';
                     ctx.beginPath();
-                    ctx.moveTo(-w/2, h * 0.2);
-                    ctx.quadraticCurveTo(0, h * 0.4, w/2, h * 0.2);
+                    ctx.moveTo(-w/2, -h * 0.05);
+                    ctx.quadraticCurveTo(0, h * 0.25, w/2, -h * 0.05);
                     ctx.stroke();
+                } else {
+                    // 開いている時：元の画像をそのまま描く（下地不要）
+                    ctx.drawImage(img, eye.x * cw, eye.y * ch, eye.width * cw, eye.height * ch, -w/2, -h/2, w, h);
                 }
-            } else {
-                ctx.drawImage(img, eye.x * cw, eye.y * ch, eye.width * cw, eye.height * ch, -w/2, -h/2, w, h);
             }
             ctx.restore();
           };
@@ -727,60 +889,96 @@ const MainScreen: React.FC = () => {
              const mh = mouth.height * ch * msc;
              const mox = mx + (mouth.width * cw - mw) / 2;
              const moy = my + (mouth.height * ch - mh) / 2;
-             const skin = customColors?.mouth || sampledColorsRef.current.mouth;
              
-             ctx.save();
-             ctx.filter = `blur(${Math.max(6, mh * 0.25)}px)`;
-             ctx.fillStyle = skin;
-             ctx.beginPath();
-             ctx.ellipse(mox + mw/2, moy + mh/2, mw/2 + 5, mh/2 + 5, 0, 0, Math.PI * 2);
-             ctx.fill();
-             ctx.restore();
-
-             const mouthDragged = isDraggingRef.current && selectedPartRef.current === 'mouth';
-             ctx.save();
-             if (mouthDragged) ctx.globalAlpha = 0.35;
-             ctx.translate(mox + mw/2 + pX, moy + mh/2 + pY);
              if (selectedMouthImgRef.current) {
-                 // カスタムパーツがある場合は、開口度合いに応じて縦方向にスケール（上端固定）
-                 const stretchY = Math.max(0.1, animatedJawOpen * 3.0);
-                 ctx.translate(0, mh/2 * (stretchY - 1));
-                 ctx.scale(1, stretchY);
-                 ctx.drawImage(selectedMouthImgRef.current, -mw/2, -mh/2, mw, mh);
-             } else {
-                 if (isMouthOpen) {
-                     // デフォルトの開口フォールバック
-                     let rx = mw/2;
-                     let ry = mh * animatedJawOpen * 2.0;
-                     rx = Number.isFinite(rx) ? Math.max(0.1, Math.abs(rx)) : 10;
-                     ry = Number.isFinite(ry) ? Math.max(0.1, Math.abs(ry)) : 10;
-                     ctx.fillStyle = '#6b1b1b';
-                     ctx.beginPath();
-                     ctx.ellipse(0, 0, rx, ry, 0, 0, Math.PI * 2);
-                     ctx.fill();
-                 } else {
-                     if (coords.mouthState === 'open') {
-                         // デフォルトの閉口フォールバック（元の絵が開口の場合）
-                         ctx.save();
-                         ctx.strokeStyle = coords?.lashColorHex || '#222222';
-                         ctx.lineWidth = Math.max(1, mh * 0.08);
-                         ctx.beginPath();
-                         ctx.moveTo(-mw * 0.4, 0);
-                         ctx.quadraticCurveTo(0, mh * 0.15, mw * 0.4, 0);
-                         ctx.stroke();
-                         ctx.restore();
-                     } else {
-                         // 元の絵そのまま
-                         ctx.drawImage(img, mouth.x * cw, mouth.y * ch, mouth.width * cw, mouth.height * ch, -mw/2, -mh/2, mw, mh);
-                     }
+                 const skin = customColors?.mouth || sampledColorsRef.current.mouth;
+                 ctx.save();
+                 if (coords && coords.neckY !== undefined) {
+                     ctx.translate(cw / 2 + smoothedX, pivotY + smoothedY);
+                     ctx.rotate(smoothedAngle);
+                     ctx.translate(-cw / 2, -pivotY);
                  }
+                 ctx.translate(mox + mw/2 + pX, moy + mh/2 + pY);
+                 ctx.filter = `blur(${Math.max(6, mh * 0.25)}px)`;
+                 ctx.fillStyle = skin;
+                 ctx.beginPath();
+                 ctx.ellipse(0, 0, mw/2 + 5, mh/2 + 5, 0, 0, Math.PI * 2);
+                 ctx.fill();
+                 ctx.restore();
              }
-             ctx.restore();
-          }
-        }
-      } else {
-        setIsTracking(false);
-      }
+
+              const mouthDragged = isDraggingRef.current && selectedPartRef.current === 'mouth';
+              ctx.save();
+              if (mouthDragged) ctx.globalAlpha = 0.35;
+              if (coords && coords.neckY !== undefined) {
+                  ctx.translate(cw / 2 + smoothedX, pivotY + smoothedY);
+                  ctx.rotate(smoothedAngle);
+                  ctx.translate(-cw / 2, -pivotY);
+              }
+              ctx.translate(mox + mw/2 + pX, moy + mh/2 + pY);
+
+               if (selectedMouthImgRef.current) {
+                   // カスタムSVGパーツ：閉じた状態から口を開く
+                   let stretchX = 1.0;
+                   let stretchY = 0.1;
+                   if (isMouthOpen) {
+                       if (currentVowel === 'a') {
+                           stretchX = 1.0; stretchY = Math.max(0.15, animatedJawOpen * 3.0);
+                       } else if (currentVowel === 'i') {
+                           stretchX = 1.3; stretchY = Math.max(0.15, animatedJawOpen * 1.5);
+                       } else if (currentVowel === 'u') {
+                           stretchX = 0.6; stretchY = Math.max(0.15, animatedJawOpen * 2.5);
+                       } else if (currentVowel === 'e') {
+                           stretchX = 1.1; stretchY = Math.max(0.15, animatedJawOpen * 2.0);
+                       } else if (currentVowel === 'o') {
+                           stretchX = 0.8; stretchY = Math.max(0.15, animatedJawOpen * 3.5);
+                       } else {
+                           stretchY = Math.max(0.15, animatedJawOpen * 3.0);
+                       }
+                   }
+                   ctx.scale(stretchX, stretchY);
+                   ctx.drawImage(selectedMouthImgRef.current, -mw/2, -mh/2, mw, mh);
+               } else {
+                   // 元の画像切り抜き：常に元の口を表示し、開いた時だけ上に上書き描画する
+                   // まず元の口を描画
+                   ctx.drawImage(img, mouth.x * cw, mouth.y * ch, mouth.width * cw, mouth.height * ch, -mw/2, -mh/2, mw, mh);
+
+                   const openAmount = isMouthOpen ? Math.max(0.15, animatedJawOpen * 2.5) : 0;
+                   if (openAmount > 0.15) {
+                       const skin = customColors?.mouth || sampledColorsRef.current.mouth || '#ffddcc';
+                       
+                       // 1. 肌色で元の口の線を完全に隠す
+                       ctx.save();
+                       ctx.filter = `blur(${Math.max(3, mh * 0.15)}px)`;
+                       ctx.fillStyle = skin;
+                       ctx.beginPath();
+                       ctx.ellipse(0, 0, mw * 0.5, mh * 0.8, 0, 0, Math.PI * 2);
+                       ctx.fill();
+                       ctx.restore();
+
+                       // 2. 口の中（暗い赤）を描画
+                       ctx.fillStyle = '#3a1111';
+                       ctx.beginPath();
+                       const mouthH = (mh / 2) * openAmount;
+                       ctx.ellipse(0, 0, mw * 0.38, mouthH, 0, 0, Math.PI * 2);
+                       ctx.fill();
+
+                       // 3. 舌（ピンク）を口の底に描画
+                       ctx.save();
+                       ctx.beginPath();
+                       ctx.ellipse(0, 0, mw * 0.38, mouthH, 0, 0, Math.PI * 2);
+                       ctx.clip();
+                       ctx.fillStyle = '#c96060';
+                       ctx.beginPath();
+                       ctx.ellipse(0, mouthH * 0.3, mw * 0.28, mouthH * 0.7, 0, 0, Math.PI * 2);
+                       ctx.fill();
+                       ctx.restore();
+                   }
+               }
+               ctx.restore();
+             }
+         }
+      
       ctx.restore();
     };
 
@@ -984,16 +1182,6 @@ const MainScreen: React.FC = () => {
         </div>
       )}
 
-      {/* 枠外タップで閉じるオーバーレイ */}
-      {showTools && (
-        <div
-          onClick={() => setShowTools(false)}
-          style={{
-            position: 'absolute', inset: 0, zIndex: 49,
-            background: 'transparent',
-          }}
-        />
-      )}
 
       {/* 常時表示のコメント読み上げパネル */}
       <div style={{
@@ -1099,6 +1287,27 @@ const MainScreen: React.FC = () => {
           <div style={{ background: '#1e293b', padding: '1.5rem', borderRadius: '1rem', width: '90%', maxWidth: '350px', boxShadow: '0 10px 40px rgba(0,0,0,0.8)' }} onClick={e => e.stopPropagation()}>
             <h3 style={{ color: 'white', marginTop: 0, fontSize: '1rem', textAlign: 'center', marginBottom: '1.5rem' }}>別のパーツを選ぶ</h3>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+              {/* 元の画像（切り抜き）を使用するオプション */}
+              <div onClick={() => {
+                if (candidateSelector === 'mouth') {
+                  setAvatarCoords({ ...avatarCoords!, selectedMouthId: undefined });
+                } else {
+                  setAvatarCoords({ ...avatarCoords!, selectedEyeId: undefined });
+                }
+                setCandidateSelector(null);
+              }} style={{ background: '#334155', borderRadius: '0.5rem', padding: '0.75rem', display: 'flex', alignItems: 'center', gap: '1rem', cursor: 'pointer', border: '1px solid #10b981' }} 
+                  onMouseEnter={e => e.currentTarget.style.border = '1px solid #3b82f6'}
+                  onMouseLeave={e => e.currentTarget.style.border = '1px solid #10b981'}
+               >
+                 <div style={{ flex: '0 0 50px', height: '40px', background: 'rgba(255,255,255,0.1)', borderRadius: '4px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#10b981', fontSize: '1.2rem' }}>
+                   🖼️
+                 </div>
+                 <div style={{ flex: 1 }}>
+                   <div style={{ color: 'white', fontSize: '0.8rem', fontWeight: 'bold' }}>元の画像を使用する</div>
+                   <div style={{ color: '#cbd5e1', fontSize: '0.65rem', marginTop: '2px' }}>元のイラストのパーツをそのまま切り抜いて使います</div>
+                 </div>
+               </div>
+
               {candidates.map(c => (
                 <div key={c.id} onClick={() => {
                   if (candidateSelector === 'mouth') {
@@ -1112,7 +1321,7 @@ const MainScreen: React.FC = () => {
                    onMouseLeave={e => e.currentTarget.style.border = '1px solid transparent'}
                 >
                   <div style={{ flex: '0 0 50px', height: '40px', background: 'rgba(255,255,255,0.1)', borderRadius: '4px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                    <img src={`/parts/${c.file}`} alt={c.name} style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }} />
+                    <img src={`${import.meta.env.BASE_URL}parts/${c.file}`} alt={c.name} style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }} />
                   </div>
                   <div style={{ flex: 1 }}>
                     <div style={{ color: 'white', fontSize: '0.8rem', fontWeight: 'bold' }}>{c.name}</div>

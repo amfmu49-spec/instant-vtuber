@@ -22,6 +22,20 @@ export interface AvatarCoords {
     mouthInnerColor: string;
     tongueColor: string;
   };
+  neckY?: number; // 0 to 100 percent
+  removeWhiteBg?: boolean;
+}
+
+export interface PsdLayerData {
+  name: string;
+  canvas?: HTMLCanvasElement;
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+  visible: boolean;
+  blendMode?: string;
+  opacity?: number;
 }
 
 interface AppState {
@@ -31,6 +45,8 @@ interface AppState {
   setBaseImage: (dataUrl: string | null) => void;
   characterImage: string | null;
   setCharacterImage: (dataUrl: string | null) => void;
+  psdLayers: PsdLayerData[] | null;
+  setPsdLayers: (layers: PsdLayerData[] | null) => void;
   avatarCoords: AvatarCoords | null;
   setAvatarCoords: (coords: AvatarCoords | null) => void;
   sensitivity: {
@@ -54,15 +70,19 @@ interface AppState {
 
 const AppContext = createContext<AppState | undefined>(undefined);
 
+// ヘルパーの遅延インポート用にヘルパー関数を定義
+import { splitImageIntoHeadAndBody } from '../utils/avatarHelper';
+
 export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [geminiApiKey, setGeminiApiKey] = useState(localStorage.getItem('gemini_api_key') || '');
   
   const [baseImage, setBaseImageState] = useState<string | null>(null);
   const [characterImage, setCharacterImageState] = useState<string | null>(null);
+  const [psdLayers, setPsdLayersState] = useState<PsdLayerData[] | null>(null);
   const [avatarCoords, setAvatarCoordsState] = useState<AvatarCoords | null>(null);
   const [customSkinColors, setCustomSkinColorsState] = useState<{ leftEye: string | null; rightEye: string | null; mouth: string | null }>({ leftEye: null, rightEye: null, mouth: null });
 
-  const [sensitivity, setSensitivity] = useState({ eyeClose: 0.3, mouthOpen: 0.2 });
+  const [sensitivity, setSensitivity] = useState({ eyeClose: 0.4, mouthOpen: 0.1 });
 
   const handleSetApiKey = (key: string) => {
     setGeminiApiKey(key);
@@ -75,6 +95,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const setCharacterImage = (dataUrl: string | null) => {
     setCharacterImageState(dataUrl);
+  };
+
+  const setPsdLayers = (layers: PsdLayerData[] | null) => {
+    setPsdLayersState(layers);
   };
 
   const setAvatarCoords = (coords: AvatarCoords | null) => {
@@ -98,6 +122,27 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     } else {
       await del('vtuber_default_profile');
     }
+  };
+
+  const applyProfileData = (data: any) => {
+    if (data.baseImage) setBaseImageState(data.baseImage);
+    if (data.characterImage) setCharacterImageState(data.characterImage);
+    else setCharacterImageState(null);
+    if (data.avatarCoords !== undefined) {
+      setAvatarCoordsState(data.avatarCoords);
+      if (data.avatarCoords && data.avatarCoords.neckY !== undefined && data.baseImage) {
+        const img = new Image();
+        img.src = data.baseImage;
+        img.onload = () => {
+          const layers = splitImageIntoHeadAndBody(img, data.avatarCoords.neckY, data.avatarCoords.removeWhiteBg !== false);
+          setPsdLayersState(layers);
+        };
+      } else {
+        setPsdLayersState(null);
+      }
+    }
+    if (data.customSkinColors) setCustomSkinColorsState(data.customSkinColors);
+    if (data.sensitivity) setSensitivity(data.sensitivity);
   };
 
   useEffect(() => {
@@ -136,11 +181,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         setDefaultProfileNameState(defaultName);
         const data = await get<any>(`vtuber_profile_${defaultName}`);
         if (data) {
-          if (data.baseImage) setBaseImageState(data.baseImage);
-          if (data.characterImage) setCharacterImageState(data.characterImage);
-          if (data.avatarCoords !== undefined) setAvatarCoordsState(data.avatarCoords);
-          if (data.customSkinColors) setCustomSkinColorsState(data.customSkinColors);
-          if (data.sensitivity) setSensitivity(data.sensitivity);
+          applyProfileData(data);
           setCurrentProfileName(defaultName);
           console.log(`Auto-loaded default profile: ${defaultName}`);
         }
@@ -189,12 +230,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         return;
       }
       
-      if (data.baseImage) setBaseImageState(data.baseImage);
-      if (data.characterImage) setCharacterImageState(data.characterImage);
-      else setCharacterImageState(null);
-      if (data.avatarCoords !== undefined) setAvatarCoordsState(data.avatarCoords);
-      if (data.customSkinColors) setCustomSkinColorsState(data.customSkinColors);
-      if (data.sensitivity) setSensitivity(data.sensitivity);
+      applyProfileData(data);
       
       setCurrentProfileName(name);
       alert(`「${name}」の設定をロードしました！`);
@@ -281,6 +317,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         setBaseImage,
         characterImage,
         setCharacterImage,
+        psdLayers,
+        setPsdLayers,
         avatarCoords,
         setAvatarCoords,
         sensitivity,

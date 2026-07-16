@@ -1,8 +1,11 @@
 import React, { useRef, useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAppContext } from '../store/AppContext';
-import { Camera, Upload, Key, Settings, Play } from 'lucide-react';
-import { analyzeAvatarImage } from '../services/geminiService';
+import { Camera, Upload, Key, Settings, Play, Sparkles } from 'lucide-react';
+import { analyzeAvatarImage, generateCharacterImage } from '../services/geminiService';
+import { readPsd } from 'ag-psd';
+import { splitImageIntoHeadAndBody } from '../utils/avatarHelper';
+import type { PsdLayerData } from '../store/AppContext';
 
 const SettingsScreen: React.FC = () => {
   const { 
@@ -14,7 +17,8 @@ const SettingsScreen: React.FC = () => {
     currentProfileName, setCurrentProfileName,
     profileList, saveProfile, loadProfile, deleteProfile,
     importProfileFromFile, exportProfileToFile,
-    defaultProfileName, setDefaultProfileName
+    defaultProfileName, setDefaultProfileName,
+    setPsdLayers, psdLayers
   } = useAppContext();
   const navigate = useNavigate();
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -24,6 +28,12 @@ const SettingsScreen: React.FC = () => {
   const [newProfileName, setNewProfileName] = useState<string>('');
   const [selectedProfile, setSelectedProfile] = useState<string>(currentProfileName || '');
 
+  // AIアバター生成用の状態
+  const [aiPrompt, setAiPrompt] = useState<string>('');
+  const [isGenerating, setIsGenerating] = useState<boolean>(false);
+  const [neckY, setNeckY] = useState<number>(55);
+  const [removeWhiteBg, setRemoveWhiteBg] = useState<boolean>(true);
+
   // デフォルトプロファイルが読み込まれたら自動的にメイン画面へ遷移する（1セッションに1回のみ）
   useEffect(() => {
     if (defaultProfileName && currentProfileName === defaultProfileName && !sessionStorage.getItem('hasAutoLoaded')) {
@@ -32,24 +42,162 @@ const SettingsScreen: React.FC = () => {
     }
   }, [defaultProfileName, currentProfileName, navigate]);
 
-  const handleSaveNewProfile = () => {
-    if (newProfileName.trim()) {
-      saveProfile(newProfileName.trim());
-      setNewProfileName('');
+  // プロファイルロード時にスライダー座標を同期
+  useEffect(() => {
+    if (avatarCoords && avatarCoords.neckY !== undefined) {
+      setNeckY(avatarCoords.neckY);
+      if (avatarCoords.removeWhiteBg !== undefined) {
+        setRemoveWhiteBg(avatarCoords.removeWhiteBg);
+      }
     }
+  }, [avatarCoords]);
+
+  const handleSaveNewProfile = () => {
+    // 保存前に、簡易2枚分割の場合は今の座標情報をavatarCoordsに記録する
+    if (baseImage && !psdLayers) {
+      setAvatarCoords({
+        leftEye: null, rightEye: null, mouth: null,
+        mouthState: 'closed', eyeState: 'open',
+        neckY: neckY,
+        removeWhiteBg: removeWhiteBg
+      });
+    }
+    
+    setTimeout(() => {
+      if (newProfileName.trim()) {
+        saveProfile(newProfileName.trim());
+        setNewProfileName('');
+      }
+    }, 50);
   };
 
-  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setBaseImage(reader.result as string);
-        setAvatarCoords(null); // 画像が変わったら座標をリセット
-        setProcessStatus('');
-      };
-      reader.readAsDataURL(file);
+      if (file.name.toLowerCase().endsWith('.psd')) {
+        setProcessStatus('PSDファイルを読み込んでいます...');
+        setIsProcessing(true);
+        try {
+          const buffer = await file.arrayBuffer();
+          const psd = readPsd(buffer, { skipLayerImageData: false, skipCompositeImageData: false });
+          
+          const makeCanvas = (node: any): HTMLCanvasElement | null => {
+            if (node.canvas) return node.canvas;
+            if (node.imageData) {
+              const c = document.createElement('canvas');
+              c.width = node.imageData.width;
+              c.height = node.imageData.height;
+              c.getContext('2d')?.putImageData(node.imageData, 0, 0);
+              return c;
+            }
+            return null;
+          };
+
+          const extractLayers = (node: any, offsetX = 0, offsetY = 0): PsdLayerData[] => {
+            let layers: PsdLayerData[] = [];
+            let currentBlendMode = node.blendMode || 'source-over';
+            const currentOpacity = node.opacity !== undefined ? node.opacity / 255 : 1;
+
+            if (node.children && node.children.length > 0) {
+              for (const child of node.children) {
+                layers = layers.concat(extractLayers(child, offsetX + (node.left || 0), offsetY + (node.top || 0)));
+              }
+            } else {
+              const canvas = makeCanvas(node);
+              if (canvas) {
+                layers.push({
+                  name: node.name || 'layer',
+                  canvas,
+                  left: (node.left || 0) + offsetX,
+                  top: (node.top || 0) + offsetY,
+                  width: canvas.width,
+                  height: canvas.height,
+                  visible: node.hidden !== true,
+                  blendMode: currentBlendMode,
+                  opacity: currentOpacity
+                });
+              }
+            }
+            return layers;
+          };
+          
+          let extractedLayers = extractLayers(psd);
+
+          const psdWidth = psd.width || 0;
+          const psdHeight = psd.height || 0;
+          let bgSuffix = '';
+
+          if (psdWidth > 0 && psdHeight > 0) {
+            for (const layer of extractedLayers) {
+              if (layer.name.startsWith('base') && layer.canvas) {
+                if (layer.left <= 5 && layer.top <= 5 && 
+                    layer.left + layer.width >= psdWidth - 5 && 
+                    layer.top + layer.height >= psdHeight - 5) {
+                  
+                  const ctx = layer.canvas.getContext('2d');
+                  if (ctx) {
+                    try {
+                      const w = layer.canvas.width;
+                      const h = layer.canvas.height;
+                      const c1 = ctx.getImageData(0, 0, 1, 1).data[3];
+                      const c2 = ctx.getImageData(w - 1, 0, 1, 1).data[3];
+                      const c3 = ctx.getImageData(0, h - 1, 1, 1).data[3];
+                      const c4 = ctx.getImageData(w - 1, h - 1, 1, 1).data[3];
+
+                      if (c1 > 100 && c2 > 100 && c3 > 100 && c4 > 100) {
+                        bgSuffix = layer.name.replace('base', '');
+                        break;
+                      }
+                    } catch (e) {
+                      console.warn("Background detection getImageData failed", e);
+                    }
+                  }
+                }
+              }
+            }
+          }
+
+          if (bgSuffix !== '') {
+            extractedLayers.forEach(layer => {
+              if (layer.name.endsWith(bgSuffix)) {
+                layer.visible = false;
+              }
+            });
+          }
+
+          setPsdLayers(extractedLayers.reverse());
+          
+          if (extractedLayers.length === 0) {
+            throw new Error('レイヤーが見つかりませんでした。');
+          }
+          
+          if (psd.canvas) {
+            setBaseImage(psd.canvas.toDataURL());
+          } else if (extractedLayers.length > 0) {
+            setBaseImage(extractedLayers[extractedLayers.length - 1].canvas?.toDataURL() || null);
+          }
+          
+          setAvatarCoords(null);
+          setProcessStatus(`✅ PSD読み込み成功！ (${extractedLayers.length}レイヤー)`);
+        } catch (err: any) {
+          console.error('PSD load error:', err);
+          setProcessStatus('PSDの読み込みに失敗: ' + err.message);
+          alert('PSDの読み込みに失敗しました。\n' + err.message);
+        } finally {
+          setIsProcessing(false);
+        }
+      } else {
+        const reader = new FileReader();
+        reader.onloadend = () => {
+          setBaseImage(reader.result as string);
+          setPsdLayers(null);
+          setAvatarCoords(null);
+          setProcessStatus('');
+        };
+        reader.readAsDataURL(file);
+      }
     }
+    e.target.value = '';
   };
 
   const handleProcessImage = async () => {
@@ -79,8 +227,47 @@ const SettingsScreen: React.FC = () => {
     }
   };
 
+  const handleGenerateCharacter = async () => {
+    if (!geminiApiKey || !aiPrompt.trim()) return;
+    setIsGenerating(true);
+    setProcessStatus('AI画像を生成しています...');
+    try {
+      const imgUrl = await generateCharacterImage(geminiApiKey, aiPrompt);
+      setBaseImage(imgUrl);
+      setPsdLayers(null);
+      setAvatarCoords(null);
+      setProcessStatus('✅ AIキャラクター生成に成功しました！');
+    } catch (err: any) {
+      console.error(err);
+      alert(`生成エラー: ${err.message || '詳細不明'}`);
+      setProcessStatus('画像生成に失敗しました。');
+    } finally {
+      setIsGenerating(false);
+    }
+  };
+
   const handleStart = () => {
-    navigate('/main');
+    if (baseImage && !psdLayers) {
+      const img = new Image();
+      img.src = baseImage;
+      img.onload = () => {
+        const layers = splitImageIntoHeadAndBody(img, neckY, removeWhiteBg);
+        setPsdLayers(layers);
+        
+        setAvatarCoords({
+          leftEye: null,
+          rightEye: null,
+          mouth: null,
+          mouthState: 'closed',
+          eyeState: 'open',
+          neckY: neckY,
+          removeWhiteBg: removeWhiteBg
+        });
+        navigate('/main');
+      };
+    } else {
+      navigate('/main');
+    }
   };
 
   return (
@@ -126,6 +313,37 @@ const SettingsScreen: React.FC = () => {
         </div>
 
 
+        <div className="form-group" style={{ borderBottom: '1px solid rgba(255,255,255,0.1)', paddingBottom: '1.5rem', marginBottom: '1.5rem', marginTop: '1.5rem' }}>
+          <h3 style={{ fontSize: '1rem', display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '1rem' }}>
+            <Sparkles size={18} style={{ color: '#a855f7' }} /> AIアバター自動生成
+          </h3>
+          <p style={{ fontSize: '0.8rem', color: '#cbd5e1', marginBottom: '1rem' }}>
+            Gemini/ImagenのAIを使って、オリジナルのアバター画像をその場で作成します。（APIキーが必要です）
+          </p>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+            <textarea
+              className="input-field"
+              rows={2}
+              placeholder="例: 金髪の猫耳の女の子、魔法使いの衣装 (英語推奨: cute cat girl, blonde hair, wizard outfit)"
+              value={aiPrompt}
+              onChange={(e) => setAiPrompt(e.target.value)}
+              style={{ resize: 'none' }}
+              disabled={!geminiApiKey}
+            />
+            <button
+              onClick={handleGenerateCharacter}
+              disabled={isGenerating || !geminiApiKey || !aiPrompt.trim()}
+              className="button-primary"
+              style={{ background: isGenerating || !geminiApiKey || !aiPrompt.trim() ? undefined : 'linear-gradient(135deg, #a855f7 0%, #6366f1 100%)', border: 'none', width: '100%', padding: '0.75rem' }}
+            >
+              {isGenerating ? 'アバター画像生成中 (約30秒)...' : 'AIキャラクターを生成する'}
+            </button>
+            {!geminiApiKey && (
+              <small style={{ color: '#ef4444' }}>※上の「基本設定」でGemini APIキーを入力してください。</small>
+            )}
+          </div>
+        </div>
+
         <div className="form-group" style={{ marginTop: '2rem' }}>
           <label>アバター画像 (ベースモデル)</label>
           
@@ -146,7 +364,7 @@ const SettingsScreen: React.FC = () => {
             ) : (
               <div style={{ color: '#94a3b8' }}>
                 <Upload size={32} style={{ margin: '0 auto 1rem' }} />
-                <p>クリックして画像をアップロード</p>
+                <p>クリックして画像をアップロード (PSD / PNG / JPEG)</p>
               </div>
             )}
           </div>
@@ -154,12 +372,12 @@ const SettingsScreen: React.FC = () => {
             type="file" 
             ref={fileInputRef} 
             onChange={handleImageUpload} 
-            accept="image/png, image/jpeg" 
+            accept="*/*" 
             style={{ display: 'none' }} 
           />
         </div>
 
-        {baseImage && (
+        {baseImage && psdLayers && (
           <div style={{ marginTop: '1.5rem' }}>
             <button 
               className="button-secondary" 
@@ -169,6 +387,59 @@ const SettingsScreen: React.FC = () => {
             >
               {isProcessing || processStatus.includes('成功') ? processStatus : <span>Gemini APIでパーツを<br />自動生成する</span>}
             </button>
+          </div>
+        )}
+
+        {baseImage && !psdLayers && (
+          <div style={{ marginTop: '1.5rem', borderTop: '1px solid rgba(255,255,255,0.1)', paddingTop: '1.5rem' }}>
+            <h3 style={{ fontSize: '1rem', marginBottom: '0.5rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+              首の分割位置（スライサー）
+            </h3>
+            <p style={{ fontSize: '0.8rem', color: '#cbd5e1', marginBottom: '1rem' }}>
+              スライダーを動かして、赤線をキャラクターの「あごの真下（首）」の位置に合わせてください。
+            </p>
+            <div style={{ position: 'relative', display: 'flex', justifyContent: 'center', margin: '0 auto 1rem' }}>
+              <div style={{ position: 'relative', display: 'inline-block' }}>
+                <img src={baseImage} alt="Neck adjustment" style={{ maxWidth: '100%', maxHeight: '220px', display: 'block', borderRadius: '8px' }} />
+                <div 
+                  style={{ 
+                    position: 'absolute', 
+                    left: 0, 
+                    right: 0, 
+                    top: `${neckY}%`, 
+                    height: '2px', 
+                    backgroundColor: '#ef4444', 
+                    boxShadow: '0 0 8px #ef4444',
+                    pointerEvents: 'none'
+                  }} 
+                />
+              </div>
+            </div>
+            <div className="form-group">
+              <label style={{ display: 'flex', justifyContent: 'space-between' }}>
+                <span>首の高さ</span> 
+                <span style={{ color: '#a855f7', fontWeight: 'bold' }}>{neckY}%</span>
+              </label>
+              <input 
+                type="range" 
+                min="10" max="90" step="1"
+                value={neckY}
+                onChange={(e) => setNeckY(parseInt(e.target.value))}
+                style={{ width: '100%' }}
+              />
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginTop: '0.5rem', marginBottom: '1rem' }}>
+              <input 
+                type="checkbox" 
+                id="remove-white-bg"
+                checked={removeWhiteBg}
+                onChange={(e) => setRemoveWhiteBg(e.target.checked)}
+                style={{ cursor: 'pointer' }}
+              />
+              <label htmlFor="remove-white-bg" style={{ cursor: 'pointer', fontSize: '0.85rem', color: '#cbd5e1' }}>
+                白背景を自動的に透明化する
+              </label>
+            </div>
           </div>
         )}
 
