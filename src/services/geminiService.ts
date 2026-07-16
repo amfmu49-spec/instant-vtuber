@@ -116,14 +116,43 @@ export const analyzeAvatarImage = async (apiKey: string, base64Image: string): P
   }
 };
 
+export const getAvailableImagenModel = async (apiKey: string): Promise<string> => {
+  try {
+    const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`);
+    if (res.ok) {
+      const json = await res.json();
+      if (json.models && Array.isArray(json.models)) {
+        // "imagen" を名前に含み、かつ "predict" がサポートされているモデルを検索
+        const imagenModels = json.models.filter((m: any) => 
+          m.name.toLowerCase().includes("imagen") && 
+          m.supportedGenerationMethods?.includes("predict")
+        );
+        if (imagenModels.length > 0) {
+          const modelName = imagenModels[0].name.replace("models/", "");
+          console.log("Dynamically found active Imagen model:", modelName);
+          return modelName;
+        }
+      }
+    }
+  } catch (e) {
+    console.warn("Failed to fetch dynamic Imagen model list:", e);
+  }
+  // 利用可能なモデルが見つからなかった場合のデフォルトフォールバック
+  return "imagen-3.0-generate-002";
+};
+
 export const generateCharacterImage = async (apiKey: string, promptText: string): Promise<string> => {
   if (!apiKey || !promptText) throw new Error("APIキーまたはプロンプトが空です。");
+
+  // 利用可能なImagenモデル名を動的に取得
+  const modelName = await getAvailableImagenModel(apiKey);
+  console.log(`Using Imagen model endpoint: ${modelName}`);
 
   // 切り抜きやすさとアバターとしての見栄えを保証するプロンプトテンプレート
   const fullPrompt = `${promptText}, front-facing bust-up portrait, looking at the viewer. Clear neck line without any accessories, simple hairstyle. Solid flat white background, digital anime style.`;
 
   try {
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/imagen-3.0-generate-002:predict?key=${apiKey}`;
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:predict?key=${apiKey}`;
     const response = await fetch(url, {
       method: "POST",
       headers: {
