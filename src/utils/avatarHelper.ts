@@ -331,12 +331,18 @@ const applyFeatherBox = (canvas: HTMLCanvasElement, featherPx: number = 6) => {
 export interface Parsed16by9AssetSheet {
   baseBustCanvas: HTMLCanvasElement;
   baseBustDataUrl: string;
-  eyesOpenCanvas: HTMLCanvasElement;
-  eyesClosedCanvas: HTMLCanvasElement;
+  leftEyeOpenCanvas: HTMLCanvasElement;
+  rightEyeOpenCanvas: HTMLCanvasElement;
+  leftEyeClosedCanvas: HTMLCanvasElement;
+  rightEyeClosedCanvas: HTMLCanvasElement;
   mouthOpenCanvas: HTMLCanvasElement;
   mouthClosedCanvas: HTMLCanvasElement;
   eyesOpenDataUrl: string;
   eyesClosedDataUrl: string;
+  leftEyeOpenDataUrl: string;
+  rightEyeOpenDataUrl: string;
+  leftEyeClosedDataUrl: string;
+  rightEyeClosedDataUrl: string;
   mouthOpenDataUrl: string;
   mouthClosedDataUrl: string;
   suggestedCoords: {
@@ -387,8 +393,7 @@ export const autotrimCanvas = (
     return sourceCanvas;
   }
 
-  // Padding
-  const pad = 6;
+  const pad = 4;
   const cropX = Math.max(0, minX - pad);
   const cropY = Math.max(0, minY - pad);
   const cropW = Math.min(w - cropX, maxX - minX + pad * 2);
@@ -442,7 +447,7 @@ export const parse16by9AssetSheet = (img: HTMLImageElement): Parsed16by9AssetShe
     baseCtx.putImageData(imgData, 0, 0);
   }
 
-  // Helper to extract right half quadrants
+  // Helper to extract sub-regions of the right half
   const extractQuadrant = (
     relMinX: number, // 0 to 1 relative to Right Half width
     relMaxX: number,
@@ -464,32 +469,42 @@ export const parse16by9AssetSheet = (img: HTMLImageElement): Parsed16by9AssetShe
     return autotrimCanvas(tempCanvas, true);
   };
 
-  // Quadrants on Right Half:
-  // Top-Left (0.0~0.5 X, 0.0~0.5 Y): Both eyes open
-  // Top-Right (0.5~1.0 X, 0.0~0.5 Y): Both eyes closed
-  // Bottom-Left (0.0~0.5 X, 0.5~1.0 Y): Mouth open
-  // Bottom-Right (0.5~1.0 X, 0.5~1.0 Y): Mouth neutral (closed)
+  // Full Quadrant Canvases (Both Eyes)
   const eyesOpenCanvas = extractQuadrant(0.0, 0.5, 0.0, 0.5);
   const eyesClosedCanvas = extractQuadrant(0.5, 1.0, 0.0, 0.5);
+
+  // Individual Single Eye Canvases (Split Quadrants horizontally)
+  const leftEyeOpenCanvas = extractQuadrant(0.0, 0.25, 0.0, 0.5);
+  const rightEyeOpenCanvas = extractQuadrant(0.25, 0.5, 0.0, 0.5);
+  const leftEyeClosedCanvas = extractQuadrant(0.5, 0.75, 0.0, 0.5);
+  const rightEyeClosedCanvas = extractQuadrant(0.75, 1.0, 0.0, 0.5);
+
+  // Mouth Canvases
   const mouthOpenCanvas = extractQuadrant(0.0, 0.5, 0.5, 1.0);
   const mouthClosedCanvas = extractQuadrant(0.5, 1.0, 0.5, 1.0);
 
-  // Suggested bounding boxes for placement on the blank face (relative to left half)
+  // Precise anatomical suggested bounding boxes for placement on the blank face (relative to left half)
   const suggestedCoords = {
-    leftEye: { x: 0.35, y: 0.28, width: 0.15, height: 0.12 },
-    rightEye: { x: 0.50, y: 0.28, width: 0.15, height: 0.12 },
-    mouth: { x: 0.42, y: 0.44, width: 0.16, height: 0.10 }
+    leftEye: { x: 0.27, y: 0.33, width: 0.17, height: 0.14 },
+    rightEye: { x: 0.56, y: 0.33, width: 0.17, height: 0.14 },
+    mouth: { x: 0.40, y: 0.53, width: 0.20, height: 0.13 }
   };
 
   return {
     baseBustCanvas,
     baseBustDataUrl: baseBustCanvas.toDataURL(),
-    eyesOpenCanvas,
-    eyesClosedCanvas,
+    leftEyeOpenCanvas,
+    rightEyeOpenCanvas,
+    leftEyeClosedCanvas,
+    rightEyeClosedCanvas,
     mouthOpenCanvas,
     mouthClosedCanvas,
     eyesOpenDataUrl: eyesOpenCanvas.toDataURL(),
     eyesClosedDataUrl: eyesClosedCanvas.toDataURL(),
+    leftEyeOpenDataUrl: leftEyeOpenCanvas.toDataURL(),
+    rightEyeOpenDataUrl: rightEyeOpenCanvas.toDataURL(),
+    leftEyeClosedDataUrl: leftEyeClosedCanvas.toDataURL(),
+    rightEyeClosedDataUrl: rightEyeClosedCanvas.toDataURL(),
     mouthOpenDataUrl: mouthOpenCanvas.toDataURL(),
     mouthClosedDataUrl: mouthClosedCanvas.toDataURL(),
     suggestedCoords

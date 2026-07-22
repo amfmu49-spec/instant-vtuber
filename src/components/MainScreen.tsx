@@ -19,7 +19,7 @@ const getVowelsFromText = (text: string): ('a' | 'i' | 'u' | 'e' | 'o' | null)[]
 };
 
 const MainScreen: React.FC = () => {
-  const { baseImage, originalGridImage, sensitivity, avatarCoords, setAvatarCoords, customSkinColors, setCustomSkinColors, saveProfile, currentProfileName, psdLayers, setPsdLayers } = useAppContext();
+  const { baseImage, originalGridImage, sensitivity, avatarCoords, setAvatarCoords, customSkinColors, setCustomSkinColors, saveProfile, currentProfileName, psdLayers, setPsdLayers, parsedAssetSheetParts } = useAppContext();
   const navigate = useNavigate();
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -27,6 +27,60 @@ const MainScreen: React.FC = () => {
   const [bgColor, setBgColor] = useState('#00ff00');
   const [showTools, setShowTools] = useState(false);
   const showToolsRef = useRef(showTools);
+
+  const assetSheetImagesRef = useRef<{
+    leftEyeOpen: HTMLImageElement | null;
+    rightEyeOpen: HTMLImageElement | null;
+    leftEyeClosed: HTMLImageElement | null;
+    rightEyeClosed: HTMLImageElement | null;
+    mouthOpen: HTMLImageElement | null;
+    mouthClosed: HTMLImageElement | null;
+  }>({
+    leftEyeOpen: null,
+    rightEyeOpen: null,
+    leftEyeClosed: null,
+    rightEyeClosed: null,
+    mouthOpen: null,
+    mouthClosed: null
+  });
+
+  useEffect(() => {
+    if (parsedAssetSheetParts) {
+      const loadImg = (url: string): Promise<HTMLImageElement | null> => {
+        if (!url) return Promise.resolve(null);
+        const img = new Image();
+        img.src = url;
+        return new Promise(r => { img.onload = () => r(img); img.onerror = () => r(null); });
+      };
+
+      Promise.all([
+        loadImg(parsedAssetSheetParts.leftEyeOpenDataUrl || parsedAssetSheetParts.eyesOpenDataUrl),
+        loadImg(parsedAssetSheetParts.rightEyeOpenDataUrl || parsedAssetSheetParts.eyesOpenDataUrl),
+        loadImg(parsedAssetSheetParts.leftEyeClosedDataUrl || parsedAssetSheetParts.eyesClosedDataUrl),
+        loadImg(parsedAssetSheetParts.rightEyeClosedDataUrl || parsedAssetSheetParts.eyesClosedDataUrl),
+        loadImg(parsedAssetSheetParts.mouthOpenDataUrl),
+        loadImg(parsedAssetSheetParts.mouthClosedDataUrl)
+      ]).then(([leo, reo, lec, rec, mo, mc]) => {
+        assetSheetImagesRef.current = {
+          leftEyeOpen: leo,
+          rightEyeOpen: reo,
+          leftEyeClosed: lec,
+          rightEyeClosed: rec,
+          mouthOpen: mo,
+          mouthClosed: mc
+        };
+      });
+    } else {
+      assetSheetImagesRef.current = {
+        leftEyeOpen: null,
+        rightEyeOpen: null,
+        leftEyeClosed: null,
+        rightEyeClosed: null,
+        mouthOpen: null,
+        mouthClosed: null
+      };
+    }
+  }, [parsedAssetSheetParts]);
   
   useEffect(() => { 
     showToolsRef.current = showTools; 
@@ -924,7 +978,13 @@ const MainScreen: React.FC = () => {
             }
             ctx.translate(ox + w/2 + pX, oy + h/2 + pY);
 
-            if (selectedEyeImgRef.current) {
+            const assetEye = isLeft
+              ? (isClosed ? assetSheetImagesRef.current.leftEyeClosed : assetSheetImagesRef.current.leftEyeOpen)
+              : (isClosed ? assetSheetImagesRef.current.rightEyeClosed : assetSheetImagesRef.current.rightEyeOpen);
+
+            if (assetEye) {
+              ctx.drawImage(assetEye, -w/2, -h/2, w, h);
+            } else if (selectedEyeImgRef.current) {
                 // カスタムSVGパーツを使う場合は肌色下地を先に描く
                 const skin = customColors?.[isLeft ? 'leftEye' : 'rightEye'] || sampledColorsRef.current[isLeft ? 'leftEye' : 'rightEye'];
                 ctx.save();
@@ -981,7 +1041,11 @@ const MainScreen: React.FC = () => {
              const mox = mx + (mouth.width * cw - mw) / 2;
              const moy = my + (mouth.height * ch - mh) / 2;
              
-             if (selectedMouthImgRef.current) {
+             const assetMouth = (isMouthOpen && animatedJawOpen > (sensitivityRef.current?.mouthOpen || 0.1))
+               ? (assetSheetImagesRef.current.mouthOpen || assetSheetImagesRef.current.mouthClosed)
+               : assetSheetImagesRef.current.mouthClosed;
+
+             if (selectedMouthImgRef.current && !assetMouth) {
                  const skin = customColors?.mouth || sampledColorsRef.current.mouth;
                  ctx.save();
                  if (coords && coords.neckY !== undefined) {
@@ -1008,7 +1072,9 @@ const MainScreen: React.FC = () => {
               }
               ctx.translate(mox + mw/2 + pX, moy + mh/2 + pY);
 
-               if (selectedMouthImgRef.current) {
+               if (assetMouth) {
+                   ctx.drawImage(assetMouth, -mw/2, -mh/2, mw, mh);
+               } else if (selectedMouthImgRef.current) {
                     // カスタムSVGパーツ：閉じた状態から口を開く
                     let stretchX = 1.0;
                     let stretchY = 0.05; // 閉じ口のときの高さ比率
