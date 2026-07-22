@@ -338,64 +338,40 @@ const EditorCanvas: React.FC<{
     return { cx, cy };
   };
 
-  const hitTest = (cx: number, cy: number): { key: NonNullable<ActiveKey>; handle: DragHandle } => {
+  const hitTest = (cx: number, cy: number): { key: NonNullable<ActiveKey>; handle: DragHandle } | null => {
+    // If no part button has been clicked yet, do not start dragging
+    if (!active) return null;
+
     const { drawX, drawY, drawW, drawH } = drawBoundsRef.current;
 
-    // 1. Check handles on current active box
-    if (active) {
-      const activeBox = state[active as keyof EditorState] as Box;
-      if (activeBox) {
-        const abx = drawX + activeBox.x * drawW;
-        const aby = drawY + activeBox.y * drawH;
-        const abw = activeBox.width * drawW;
-        const abh = activeBox.height * drawH;
-        const tol = 24;
+    // Check resize handles on the currently active box
+    const activeBox = state[active as keyof EditorState] as Box;
+    if (activeBox) {
+      const abx = drawX + activeBox.x * drawW;
+      const aby = drawY + activeBox.y * drawH;
+      const abw = activeBox.width * drawW;
+      const abh = activeBox.height * drawH;
+      const tol = 24;
 
-        if (Math.abs(cy - aby) <= tol && cx >= abx + 10 && cx <= abx + abw - 10) return { key: active, handle: 'n' };
-        if (Math.abs(cy - (aby + abh)) <= tol && cx >= abx + 10 && cx <= abx + abw - 10) return { key: active, handle: 's' };
-        if (Math.abs(cx - abx) <= tol && cy >= aby + 10 && cy <= aby + abh - 10) return { key: active, handle: 'w' };
-        if (Math.abs(cx - (abx + abw)) <= tol && cy >= aby + 10 && cy <= aby + abh - 10) return { key: active, handle: 'e' };
+      if (Math.abs(cy - aby) <= tol && cx >= abx + 10 && cx <= abx + abw - 10) return { key: active, handle: 'n' };
+      if (Math.abs(cy - (aby + abh)) <= tol && cx >= abx + 10 && cx <= abx + abw - 10) return { key: active, handle: 's' };
+      if (Math.abs(cx - abx) <= tol && cy >= aby + 10 && cy <= aby + abh - 10) return { key: active, handle: 'w' };
+      if (Math.abs(cx - (abx + abw)) <= tol && cy >= aby + 10 && cy <= aby + abh - 10) return { key: active, handle: 'e' };
 
-        if (Math.abs(cx - abx) <= tol && Math.abs(cy - aby) <= tol) return { key: active, handle: 'nw' };
-        if (Math.abs(cx - (abx + abw)) <= tol && Math.abs(cy - aby) <= tol) return { key: active, handle: 'ne' };
-        if (Math.abs(cx - abx) <= tol && Math.abs(cy - (aby + abh)) <= tol) return { key: active, handle: 'sw' };
-        if (Math.abs(cx - (abx + abw)) <= tol && Math.abs(cy - (aby + abh)) <= tol) return { key: active, handle: 'se' };
-      }
+      if (Math.abs(cx - abx) <= tol && Math.abs(cy - aby) <= tol) return { key: active, handle: 'nw' };
+      if (Math.abs(cx - (abx + abw)) <= tol && Math.abs(cy - aby) <= tol) return { key: active, handle: 'ne' };
+      if (Math.abs(cx - abx) <= tol && Math.abs(cy - (aby + abh)) <= tol) return { key: active, handle: 'sw' };
+      if (Math.abs(cx - (abx + abw)) <= tol && Math.abs(cy - (aby + abh)) <= tol) return { key: active, handle: 'se' };
     }
 
-    // 2. Check if touching inside another visible box
-    for (const key of [...visibleKeys].reverse()) {
-      if (!key || key === active) continue;
-      const box = state[key as keyof EditorState] as Box;
-      const bx = drawX + box.x * drawW;
-      const by = drawY + box.y * drawH;
-      const bw = box.width * drawW;
-      const bh = box.height * drawH;
-      if (cx >= bx && cx <= bx + bw && cy >= by && cy <= by + bh) {
-        return { key: key as NonNullable<ActiveKey>, handle: 'move' };
-      }
-    }
-
-    // 3. In crop mode when active is null: detect quadrant tap to select part
-    if (mode === 'crop') {
-      const relX = (cx - drawX) / drawW;
-      const relY = (cy - drawY) / drawH;
-      let targetKey: CropKey = 'eyesOpenCrop';
-      if (relX < 0.5 && relY < 0.5) targetKey = 'eyesOpenCrop';
-      else if (relX >= 0.5 && relY < 0.5) targetKey = 'eyesClosedCrop';
-      else if (relX < 0.5 && relY >= 0.5) targetKey = 'mouthOpenCrop';
-      else targetKey = 'mouthClosedCrop';
-
-      return { key: targetKey, handle: 'move' };
-    }
-
-    const defaultKey = active || 'eyesPlace';
-    return { key: defaultKey as NonNullable<ActiveKey>, handle: 'move' };
+    // Dragging anywhere on canvas moves the currently active part selected via top button
+    return { key: active, handle: 'move' };
   };
 
   const onDown = (e: React.MouseEvent<HTMLCanvasElement>) => {
     const {cx,cy} = getCoords(e);
     const hit = hitTest(cx, cy);
+    if (!hit) return;
     setActive(hit.key);
     dragRef.current = { key: hit.key, handle: hit.handle, startMX: cx, startMY: cy,
       startBox: { ...(state[hit.key as keyof EditorState] as Box) } };
