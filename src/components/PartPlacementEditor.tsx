@@ -37,10 +37,13 @@ const LABELS: Record<string, string> = {
 };
 
 const DEFAULT_STATE: EditorState = {
-  eyesOpenCrop:   { x: 0.50, y: 0.02, width: 0.24, height: 0.45 },
-  eyesClosedCrop: { x: 0.76, y: 0.02, width: 0.24, height: 0.45 },
-  mouthOpenCrop:  { x: 0.50, y: 0.52, width: 0.24, height: 0.45 },
-  mouthClosedCrop:{ x: 0.76, y: 0.52, width: 0.24, height: 0.45 },
+  // Crop coords = relative to RIGHT HALF only (0-1 maps to right 50% of sheet)
+  // Sheet right half is split: top-left=眼開, top-right=眼閉, bottom-left=口開, bottom-right=口閉
+  eyesOpenCrop:   { x: 0.0,  y: 0.0,  width: 0.5,  height: 0.5  },
+  eyesClosedCrop: { x: 0.5,  y: 0.0,  width: 0.5,  height: 0.5  },
+  mouthOpenCrop:  { x: 0.0,  y: 0.5,  width: 0.5,  height: 0.5  },
+  mouthClosedCrop:{ x: 0.5,  y: 0.5,  width: 0.5,  height: 0.5  },
+  // Place coords = relative to LEFT HALF (base bust) 0-1
   eyesPlace:  { x: 0.15, y: 0.26, width: 0.70, height: 0.24 },
   mouthPlace: { x: 0.25, y: 0.53, width: 0.50, height: 0.18 },
 };
@@ -84,32 +87,34 @@ const EditorCanvas: React.FC<{
         ctx.fillRect(tx, ty, 16, 16);
       }
 
-    const img = mode === 'crop' ? sheetImg : baseImg;
-    if (img) {
-      if (mode === 'place') {
-        // Show only the left half of the sheet (the face)
-        ctx.drawImage(img, 0, 0, img.width / 2, img.height, 0, 0, cw, ch);
-      } else {
-        ctx.drawImage(img, 0, 0, cw, ch);
-        // Centre divider
-        ctx.save();
-        ctx.strokeStyle = 'rgba(255,255,255,0.3)';
-        ctx.lineWidth = 2; ctx.setLineDash([6,4]);
-        ctx.beginPath(); ctx.moveTo(cw/2,0); ctx.lineTo(cw/2,ch); ctx.stroke();
-        ctx.restore();
-        ctx.save();
-        ctx.fillStyle='rgba(255,255,255,0.45)'; ctx.font='bold 11px system-ui';
-        ctx.fillText('◀ 素体 (のっぺらぼう)', 8, 14);
-        ctx.fillText('▶ パーツ素材 (切り抜き元)', cw/2+6, 14);
-        ctx.restore();
+    if (mode === 'crop') {
+      // Show RIGHT HALF of full sheet only
+      if (sheetImg) {
+        const sw = sheetImg.naturalWidth || sheetImg.width;
+        const sh = sheetImg.naturalHeight || sheetImg.height;
+        ctx.drawImage(sheetImg, sw / 2, 0, sw / 2, sh, 0, 0, cw, ch);
       }
+      ctx.save();
+      ctx.fillStyle='rgba(255,255,255,0.45)'; ctx.font='bold 12px system-ui';
+      ctx.fillText('✂ パーツ切り抜きエリア (右側半分)', 8, 18);
+      ctx.restore();
+    } else {
+      // Show LEFT HALF of full sheet only (base bust)
+      if (sheetImg) {
+        const sw = sheetImg.naturalWidth || sheetImg.width;
+        const sh = sheetImg.naturalHeight || sheetImg.height;
+        ctx.drawImage(sheetImg, 0, 0, sw / 2, sh, 0, 0, cw, ch);
+      }
+      ctx.save();
+      ctx.fillStyle='rgba(255,255,255,0.45)'; ctx.font='bold 12px system-ui';
+      ctx.fillText('📍 貼り付け位置指定 (左側素体)', 8, 18);
+      ctx.restore();
     }
 
     for (const key of visibleKeys) {
       const box = state[key as keyof EditorState] as Box;
       const isAct = active === key;
 
-      // In place mode coords are relative to base (0-1 of left-half display)
       const bx = box.x * cw;
       const by = box.y * ch;
       const bw = box.width * cw;
@@ -141,6 +146,7 @@ const EditorCanvas: React.FC<{
       }
     }
   }, [state, active, mode, sheetImg, baseImg, visibleKeys]);
+
 
   useEffect(() => { draw(); }, [draw]);
 
@@ -302,12 +308,18 @@ export const PartPlacementEditor: React.FC = () => {
     if (!parsedAssetSheetParts || !img) return;
     const iw = img.naturalWidth || img.width;
     const ih = img.naturalHeight || img.height;
+    const halfW = iw / 2;  // Crop coords are relative to right half only
 
+    // box.x/y/width/height are 0-1 relative to the right half
     const crop = (box: Box) => {
       const c = document.createElement('canvas');
-      c.width  = Math.max(1, Math.round(box.width  * iw));
+      c.width  = Math.max(1, Math.round(box.width  * halfW));
       c.height = Math.max(1, Math.round(box.height * ih));
-      c.getContext('2d')?.drawImage(img, box.x*iw, box.y*ih, box.width*iw, box.height*ih, 0, 0, c.width, c.height);
+      // Source x starts at halfW (right half origin) + box.x * halfW
+      c.getContext('2d')?.drawImage(img,
+        halfW + box.x * halfW, box.y * ih,
+        box.width * halfW, box.height * ih,
+        0, 0, c.width, c.height);
       return c.toDataURL();
     };
 
