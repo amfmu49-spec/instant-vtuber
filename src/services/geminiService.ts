@@ -191,6 +191,113 @@ export const generateCharacterImage = async (apiKey: string, promptText: string)
   }
 };
 
+export const generateVTuberAssetSheetPrompt = (customDetails: string): string => {
+  const details = customDetails.trim() ? customDetails : "cute anime girl with silver hair, twin tails, blue eyes, wearing stylish sailor uniform";
+  return `A high-resolution VTuber asset sheet designed for Live2D animation, in a clean 16:9 layout on a transparent or plain white background.
+
+The canvas is divided vertically into two halves:
+
+LEFT HALF:
+A front-facing anime-style character bust (from chest up), with full hair, head, and body details, but with a completely blank face (no eyes, no mouth, no eyebrows). The face area is smooth and clean, designed as a base layer for facial parts.
+
+RIGHT HALF:
+Organized expression parts for the same character, neatly arranged and clearly separated:
+- Both eyes open (neutral expression)
+- Both eyes closed
+- Mouth open
+- Mouth neutral (closed, straight line)
+
+All parts must match perfectly in style, size, and alignment with the base face on the left.
+Use crisp anime-style linework, soft shading, and consistent lighting.
+
+The character should have a modern VTuber aesthetic (clean, appealing, slightly stylized, suitable for streaming avatar use).
+
+Ensure precise alignment and spacing for easy rigging in Live2D.
+
+Character Design Details: ${details}`;
+};
+
+export const generateVTuberAssetSheet = async (
+  apiKey: string,
+  userPrompt: string,
+  useFreeMode: boolean = false
+): Promise<string> => {
+  const fullPrompt = generateVTuberAssetSheetPrompt(userPrompt);
+
+  if (useFreeMode || !apiKey) {
+    return generateFree16by9AssetSheet(fullPrompt);
+  }
+
+  // 利用可能なImagenモデル名を動的に取得
+  const modelName = await getAvailableImagenModel(apiKey);
+  console.log(`Using Imagen model endpoint for 16:9 Asset Sheet: ${modelName}`);
+
+  try {
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:predict?key=${apiKey}`;
+    const response = await fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        instances: [
+          {
+            prompt: fullPrompt
+          }
+        ],
+        parameters: {
+          sampleCount: 1,
+          outputMimeType: "image/png",
+          aspectRatio: "16:9"
+        }
+      })
+    });
+
+    if (!response.ok) {
+      const errJson = await response.json().catch(() => ({}));
+      const errMsg = errJson.error?.message || `HTTP ${response.status} エラー`;
+      // APIキーまたはImagenエラーが起きた場合はフリーモードへフォールバックを試みる
+      console.warn("Imagen API failed, attempting fallback to free mode:", errMsg);
+      return generateFree16by9AssetSheet(fullPrompt);
+    }
+
+    const result = await response.json();
+    const base64Bytes = result.predictions?.[0]?.bytesBase64Encoded;
+    if (!base64Bytes) {
+      return generateFree16by9AssetSheet(fullPrompt);
+    }
+
+    return `data:image/png;base64,${base64Bytes}`;
+  } catch (error: any) {
+    console.warn("Imagen API Exception, attempting fallback to free mode:", error);
+    return generateFree16by9AssetSheet(fullPrompt);
+  }
+};
+
+export const generateFree16by9AssetSheet = async (promptText: string): Promise<string> => {
+  try {
+    const encodedPrompt = encodeURIComponent(promptText);
+    const seed = Math.floor(Math.random() * 1000000);
+    const url = `https://image.pollinations.ai/p/${encodedPrompt}?width=1280&height=720&seed=${seed}&nologo=true&enhance=true&model=flux-anime`;
+
+    const response = await fetch(url);
+    if (!response.ok) {
+      throw new Error(`画像生成サービスエラー (HTTP ${response.status})`);
+    }
+
+    const blob = await response.blob();
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onloadend = () => resolve(reader.result as string);
+      reader.onerror = () => reject(new Error("画像の読み込みに失敗しました。"));
+      reader.readAsDataURL(blob);
+    });
+  } catch (error: any) {
+    console.error("Free Image Gen Error:", error);
+    throw new Error(error.message || "画像の生成中にエラーが発生しました。");
+  }
+};
+
 export const generateFreeCharacterImage = async (promptText: string): Promise<string> => {
   if (!promptText) throw new Error("プロンプトが空です。");
 
@@ -220,3 +327,4 @@ export const generateFreeCharacterImage = async (promptText: string): Promise<st
     throw new Error(error.message || "画像の生成中にエラーが発生しました。");
   }
 };
+

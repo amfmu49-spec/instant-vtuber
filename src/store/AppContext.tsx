@@ -59,6 +59,12 @@ interface AppState {
   setSensitivity: (s: { eyeClose: number; mouthOpen: number }) => void;
   customSkinColors: { leftEye: string | null; rightEye: string | null; mouth: string | null };
   setCustomSkinColors: (colors: { leftEye: string | null; rightEye: string | null; mouth: string | null }) => void;
+  assetSheetImage: string | null;
+  setAssetSheetImage: (dataUrl: string | null) => void;
+  parsedAssetSheetParts: any | null;
+  setParsedAssetSheetParts: (parts: any | null) => void;
+  assetSheetPrompt: string;
+  setAssetSheetPrompt: (prompt: string) => void;
   currentProfileName: string | null;
   setCurrentProfileName: (name: string | null) => void;
   profileList: string[];
@@ -85,6 +91,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [psdLayers, setPsdLayersState] = useState<PsdLayerData[] | null>(null);
   const [avatarCoords, setAvatarCoordsState] = useState<AvatarCoords | null>(null);
   const [customSkinColors, setCustomSkinColorsState] = useState<{ leftEye: string | null; rightEye: string | null; mouth: string | null }>({ leftEye: null, rightEye: null, mouth: null });
+  const [assetSheetImage, setAssetSheetImage] = useState<string | null>(null);
+  const [parsedAssetSheetParts, setParsedAssetSheetParts] = useState<any | null>(null);
+  const [assetSheetPrompt, setAssetSheetPrompt] = useState<string>("cute anime girl with silver hair, twin tails, blue eyes, wearing stylish sailor uniform");
 
   const [sensitivity, setSensitivity] = useState({ eyeClose: 0.4, mouthOpen: 0.1 });
 
@@ -334,6 +343,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         setSensitivity,
         customSkinColors,
         setCustomSkinColors,
+        assetSheetImage,
+        setAssetSheetImage,
+        parsedAssetSheetParts,
+        setParsedAssetSheetParts,
+        assetSheetPrompt,
+        setAssetSheetPrompt,
         currentProfileName,
         setCurrentProfileName,
         profileList,

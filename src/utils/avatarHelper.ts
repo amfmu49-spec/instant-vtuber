@@ -327,3 +327,172 @@ const applyFeatherBox = (canvas: HTMLCanvasElement, featherPx: number = 6) => {
   ctx.drawImage(mask, 0, 0);
   ctx.globalCompositeOperation = 'source-over';
 };
+
+export interface Parsed16by9AssetSheet {
+  baseBustCanvas: HTMLCanvasElement;
+  baseBustDataUrl: string;
+  eyesOpenCanvas: HTMLCanvasElement;
+  eyesClosedCanvas: HTMLCanvasElement;
+  mouthOpenCanvas: HTMLCanvasElement;
+  mouthClosedCanvas: HTMLCanvasElement;
+  eyesOpenDataUrl: string;
+  eyesClosedDataUrl: string;
+  mouthOpenDataUrl: string;
+  mouthClosedDataUrl: string;
+  suggestedCoords: {
+    leftEye: { x: number; y: number; width: number; height: number };
+    rightEye: { x: number; y: number; width: number; height: number };
+    mouth: { x: number; y: number; width: number; height: number };
+  };
+}
+
+export const autotrimCanvas = (
+  sourceCanvas: HTMLCanvasElement,
+  removeWhite: boolean = true
+): HTMLCanvasElement => {
+  const ctx = sourceCanvas.getContext('2d');
+  if (!ctx) return sourceCanvas;
+
+  const w = sourceCanvas.width;
+  const h = sourceCanvas.height;
+  const imgData = ctx.getImageData(0, 0, w, h);
+  const data = imgData.data;
+
+  let minX = w;
+  let minY = h;
+  let maxX = 0;
+  let maxY = 0;
+
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const idx = (y * w + x) * 4;
+      const r = data[idx];
+      const g = data[idx + 1];
+      const b = data[idx + 2];
+      const a = data[idx + 3];
+
+      const isWhite = removeWhite && (r > 235 && g > 235 && b > 235);
+      const isOpaque = a > 20 && !isWhite;
+
+      if (isOpaque) {
+        if (x < minX) minX = x;
+        if (x > maxX) maxX = x;
+        if (y < minY) minY = y;
+        if (y > maxY) maxY = y;
+      }
+    }
+  }
+
+  if (minX >= maxX || minY >= maxY) {
+    return sourceCanvas;
+  }
+
+  // Padding
+  const pad = 6;
+  const cropX = Math.max(0, minX - pad);
+  const cropY = Math.max(0, minY - pad);
+  const cropW = Math.min(w - cropX, maxX - minX + pad * 2);
+  const cropH = Math.min(h - cropY, maxY - minY + pad * 2);
+
+  const outCanvas = document.createElement('canvas');
+  outCanvas.width = cropW;
+  outCanvas.height = cropH;
+  const outCtx = outCanvas.getContext('2d');
+  if (!outCtx) return sourceCanvas;
+
+  outCtx.drawImage(sourceCanvas, cropX, cropY, cropW, cropH, 0, 0, cropW, cropH);
+
+  if (removeWhite) {
+    const trimmedData = outCtx.getImageData(0, 0, cropW, cropH);
+    const tData = trimmedData.data;
+    for (let i = 0; i < tData.length; i += 4) {
+      if (tData[i] > 235 && tData[i + 1] > 235 && tData[i + 2] > 235) {
+        tData[i + 3] = 0;
+      }
+    }
+    outCtx.putImageData(trimmedData, 0, 0);
+  }
+
+  return outCanvas;
+};
+
+export const parse16by9AssetSheet = (img: HTMLImageElement): Parsed16by9AssetSheet => {
+  const fullWidth = img.width;
+  const fullHeight = img.height;
+
+  const halfWidth = Math.floor(fullWidth / 2);
+
+  // 1. Create Base Bust Canvas from Left Half (0 -> 50% X)
+  const baseBustCanvas = document.createElement('canvas');
+  baseBustCanvas.width = halfWidth;
+  baseBustCanvas.height = fullHeight;
+  const baseCtx = baseBustCanvas.getContext('2d');
+
+  if (baseCtx) {
+    baseCtx.drawImage(img, 0, 0, halfWidth, fullHeight, 0, 0, halfWidth, fullHeight);
+    
+    // Remove white background if present
+    const imgData = baseCtx.getImageData(0, 0, halfWidth, fullHeight);
+    const data = imgData.data;
+    for (let i = 0; i < data.length; i += 4) {
+      if (data[i] > 240 && data[i + 1] > 240 && data[i + 2] > 240) {
+        data[i + 3] = 0;
+      }
+    }
+    baseCtx.putImageData(imgData, 0, 0);
+  }
+
+  // Helper to extract right half quadrants
+  const extractQuadrant = (
+    relMinX: number, // 0 to 1 relative to Right Half width
+    relMaxX: number,
+    relMinY: number, // 0 to 1 relative to Right Half height
+    relMaxY: number
+  ): HTMLCanvasElement => {
+    const qX = halfWidth + Math.floor(relMinX * halfWidth);
+    const qY = Math.floor(relMinY * fullHeight);
+    const qW = Math.floor((relMaxX - relMinX) * halfWidth);
+    const qH = Math.floor((relMaxY - relMinY) * fullHeight);
+
+    const tempCanvas = document.createElement('canvas');
+    tempCanvas.width = qW;
+    tempCanvas.height = qH;
+    const tempCtx = tempCanvas.getContext('2d');
+    if (tempCtx) {
+      tempCtx.drawImage(img, qX, qY, qW, qH, 0, 0, qW, qH);
+    }
+    return autotrimCanvas(tempCanvas, true);
+  };
+
+  // Quadrants on Right Half:
+  // Top-Left (0.0~0.5 X, 0.0~0.5 Y): Both eyes open
+  // Top-Right (0.5~1.0 X, 0.0~0.5 Y): Both eyes closed
+  // Bottom-Left (0.0~0.5 X, 0.5~1.0 Y): Mouth open
+  // Bottom-Right (0.5~1.0 X, 0.5~1.0 Y): Mouth neutral (closed)
+  const eyesOpenCanvas = extractQuadrant(0.0, 0.5, 0.0, 0.5);
+  const eyesClosedCanvas = extractQuadrant(0.5, 1.0, 0.0, 0.5);
+  const mouthOpenCanvas = extractQuadrant(0.0, 0.5, 0.5, 1.0);
+  const mouthClosedCanvas = extractQuadrant(0.5, 1.0, 0.5, 1.0);
+
+  // Suggested bounding boxes for placement on the blank face (relative to left half)
+  const suggestedCoords = {
+    leftEye: { x: 0.35, y: 0.28, width: 0.15, height: 0.12 },
+    rightEye: { x: 0.50, y: 0.28, width: 0.15, height: 0.12 },
+    mouth: { x: 0.42, y: 0.44, width: 0.16, height: 0.10 }
+  };
+
+  return {
+    baseBustCanvas,
+    baseBustDataUrl: baseBustCanvas.toDataURL(),
+    eyesOpenCanvas,
+    eyesClosedCanvas,
+    mouthOpenCanvas,
+    mouthClosedCanvas,
+    eyesOpenDataUrl: eyesOpenCanvas.toDataURL(),
+    eyesClosedDataUrl: eyesClosedCanvas.toDataURL(),
+    mouthOpenDataUrl: mouthOpenCanvas.toDataURL(),
+    mouthClosedDataUrl: mouthClosedCanvas.toDataURL(),
+    suggestedCoords
+  };
+};
+
