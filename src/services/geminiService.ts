@@ -274,29 +274,52 @@ export const generateVTuberAssetSheet = async (
   }
 };
 
-export const generateFree16by9AssetSheet = async (promptText: string): Promise<string> => {
-  try {
-    const encodedPrompt = encodeURIComponent(promptText);
-    const seed = Math.floor(Math.random() * 1000000);
-    const url = `https://image.pollinations.ai/p/${encodedPrompt}?width=1280&height=720&seed=${seed}&nologo=true&enhance=true&model=flux-anime`;
+export const generateFree16by9AssetSheet = async (customPrompt: string): Promise<string> => {
+  // Pollinations 用にプロンプトをワンライン化＆最適化
+  const cleanPrompt = customPrompt
+    .replace(/\s+/g, ' ')
+    .trim();
+  
+  const shortPrompt = cleanPrompt.length > 350
+    ? `16:9 VTuber asset sheet, left half blank face anime bust, right half 4 expression parts (eyes open, eyes closed, mouth open, mouth neutral), ${customPrompt.slice(0, 150)}`
+    : cleanPrompt;
 
-    const response = await fetch(url);
-    if (!response.ok) {
-      throw new Error(`画像生成サービスエラー (HTTP ${response.status})`);
+  const encodedPrompt = encodeURIComponent(shortPrompt);
+  const seed = Math.floor(Math.random() * 1000000);
+
+  // フォールバックモデルリスト (flux-anime -> flux -> turbo)
+  const models = ['flux-anime', 'flux', 'turbo'];
+  
+  for (const model of models) {
+    try {
+      console.log(`Trying Pollinations model: ${model}`);
+      const url = `https://image.pollinations.ai/p/${encodedPrompt}?width=1280&height=720&seed=${seed}&nologo=true&enhance=true&model=${model}`;
+
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 18000); // 18秒タイムアウト
+
+      const response = await fetch(url, { signal: controller.signal });
+      clearTimeout(timeoutId);
+
+      if (response.ok) {
+        const blob = await response.blob();
+        if (blob && blob.size > 1000) {
+          return new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onloadend = () => resolve(reader.result as string);
+            reader.onerror = () => reject(new Error("画像の変換に失敗しました。"));
+            reader.readAsDataURL(blob);
+          });
+        }
+      }
+    } catch (e) {
+      console.warn(`Pollinations model ${model} failed, trying next fallback...`, e);
     }
-
-    const blob = await response.blob();
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onloadend = () => resolve(reader.result as string);
-      reader.onerror = () => reject(new Error("画像の読み込みに失敗しました。"));
-      reader.readAsDataURL(blob);
-    });
-  } catch (error: any) {
-    console.error("Free Image Gen Error:", error);
-    throw new Error(error.message || "画像の生成中にエラーが発生しました。");
   }
+
+  throw new Error("AI画像生成サーバーが混み合っています。「🎨 デモサンプルで即時テスト」ボタンでお試しいただくか、しばらく置いて再試行してください。");
 };
+
 
 export const generateFreeCharacterImage = async (promptText: string): Promise<string> => {
   if (!promptText) throw new Error("プロンプトが空です。");

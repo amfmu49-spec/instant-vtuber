@@ -114,7 +114,9 @@ export const AssetSheetGenerator: React.FC = () => {
       setGenerationStep('アセットシート（左: 顔無素体 / 右: 表情4種）の自動解析・切り出し中...');
 
       const img = new Image();
-      img.crossOrigin = 'anonymous';
+      if (dataUrl.startsWith('http')) {
+        img.crossOrigin = 'anonymous';
+      }
       img.src = dataUrl;
 
       img.onload = () => {
