@@ -192,8 +192,11 @@ export const generateCharacterImage = async (apiKey: string, promptText: string)
   }
 };
 
+import { translateJapanesePromptToEnglish } from '../utils/japanesePromptHelper';
+
 export const generateVTuberAssetSheetPrompt = (customDetails: string): string => {
-  const details = customDetails.trim() ? customDetails : "cute anime girl with silver hair, twin tails, blue eyes, wearing stylish sailor uniform";
+  const englishDetails = translateJapanesePromptToEnglish(customDetails);
+  const details = englishDetails ? englishDetails : "cute anime girl with silver hair, twin tails, blue eyes, wearing stylish sailor uniform";
   return `A high-resolution VTuber asset sheet designed for Live2D animation, in a clean 16:9 layout on a transparent or plain white background.
 
 The canvas is divided vertically into two halves:

@@ -14,29 +14,34 @@ interface PresetOption {
 
 const PRESET_CHARACTERS: PresetOption[] = [
   {
-    name: '銀髪ネコミミセーラー服',
+    name: '銀髪ツインテール猫耳',
     emoji: '🐱',
-    prompt: 'cute anime girl with silver long hair, cat ears, vibrant blue eyes, wearing chic pastel blue sailor uniform with red ribbon'
+    prompt: '銀髪ツインテールの青目猫耳セーラー服美少女'
   },
   {
-    name: 'ゴシックロリータ姫',
+    name: '黒髪ゴシックロリータ',
     emoji: '👑',
-    prompt: 'gothic lolita anime girl with dark purple wavy hair, twin tails, crimson red eyes, ornate black lace headband and rose dress'
+    prompt: '黒髪ツインテールの赤目ゴシックロリータドレスの女の子'
   },
   {
-    name: 'サイバーパンクアイドル',
+    name: 'ピンク髪サイバーアイドル',
     emoji: '⚡',
-    prompt: 'futuristic cyberpunk vtuber girl with bright neon pink hair, yellow glowing eyes, wearing metallic jacket with hologram badges'
+    prompt: 'ネオンピンク髪のサイバーパンクアイドル少女'
   },
   {
-    name: '狐耳和風巫女さん',
+    name: '白髪狐耳の巫女さん',
     emoji: '🦊',
-    prompt: 'fox spirit shrine maiden anime girl with soft white hair, fox ears, golden eyes, traditional red and white miko outfit with bell hairpin'
+    prompt: '白髪狐耳の金眼和風巫女さん'
   },
   {
-    name: 'ツンデレ小悪魔メイド',
+    name: '赤髪ツンデレ小悪魔メイド',
     emoji: '👿',
-    prompt: 'cute small demon maid girl with pink hair, tiny black wings, bat horn hair clips, sharp fangs, red anime eyes, black maid dress'
+    prompt: '赤髪ツンデレ小悪魔メイド少女'
+  },
+  {
+    name: '金髪セーラー服JK',
+    emoji: '🎀',
+    prompt: '金髪ツインテールの青目セーラー服女子高生'
   }
 ];
 
@@ -287,7 +292,7 @@ export const AssetSheetGenerator: React.FC = () => {
             rows={3}
             value={assetSheetPrompt}
             onChange={(e) => setAssetSheetPrompt(e.target.value)}
-            placeholder="例: cute anime girl with silver hair, twin tails, blue eyes, wearing stylish sailor uniform"
+            placeholder="例: 銀髪ツインテール猫耳の青目セーラー服美少女"
             style={{ width: '100%', resize: 'vertical', fontFamily: 'inherit' }}
           />
         </div>
