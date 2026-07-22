@@ -373,88 +373,105 @@ export const PartPlacementEditor: React.FC = () => {
         position: 'fixed', inset: 0, zIndex: 9999,
         background: '#0f172a',
         display: 'flex', flexDirection: 'column',
+        height: '100dvh',       // dynamic viewport height (handles mobile address bar)
+        overflow: 'hidden',
       }}>
-        {/* Top bar */}
+
+        {/* ── ROW 1: Mode tabs + confirm/close ── */}
         <div style={{
-          display: 'flex', alignItems: 'center', gap: '0.5rem',
-          padding: '0.5rem 0.75rem',
-          background: 'rgba(15,23,42,0.95)',
-          borderBottom: '1px solid rgba(255,255,255,0.1)',
+          display: 'flex', alignItems: 'center', gap: '0.4rem',
+          padding: '0.45rem 0.6rem',
+          background: 'rgba(15,23,42,0.97)',
+          borderBottom: '1px solid rgba(255,255,255,0.08)',
           flexShrink: 0,
+          flexWrap: 'wrap',
         }}>
-          {/* Mode tabs */}
+          {/* STEP tabs */}
           <button onClick={() => switchMode('crop')} style={{
-            padding: '0.35rem 0.8rem', borderRadius: '8px', fontSize: '0.82rem', fontWeight: 700,
+            padding: '0.3rem 0.65rem', borderRadius: '7px', fontSize: '0.8rem', fontWeight: 700,
             border: `2px solid ${mode==='crop'?'#6366f1':'rgba(255,255,255,0.1)'}`,
-            background: mode==='crop'?'rgba(99,102,241,0.25)':'transparent', color:'#fff', cursor:'pointer',
-            display:'flex',alignItems:'center',gap:'0.3rem'
-          }}><Scissors size={14}/> STEP 1 切り抜き</button>
+            background: mode==='crop'?'rgba(99,102,241,0.3)':'transparent',
+            color: mode==='crop'?'#a5b4fc':'#94a3b8', cursor: 'pointer',
+            display: 'flex', alignItems: 'center', gap: '0.25rem',
+          }}><Scissors size={13}/> 切り抜き</button>
 
           <button onClick={() => switchMode('place')} style={{
-            padding: '0.35rem 0.8rem', borderRadius: '8px', fontSize: '0.82rem', fontWeight: 700,
+            padding: '0.3rem 0.65rem', borderRadius: '7px', fontSize: '0.8rem', fontWeight: 700,
             border: `2px solid ${mode==='place'?'#10b981':'rgba(255,255,255,0.1)'}`,
-            background: mode==='place'?'rgba(16,185,129,0.25)':'transparent', color:'#fff', cursor:'pointer',
-            display:'flex',alignItems:'center',gap:'0.3rem'
-          }}><MapPin size={14}/> STEP 2 貼り付け</button>
+            background: mode==='place'?'rgba(16,185,129,0.3)':'transparent',
+            color: mode==='place'?'#6ee7b7':'#94a3b8', cursor: 'pointer',
+            display: 'flex', alignItems: 'center', gap: '0.25rem',
+          }}><MapPin size={13}/> 貼り付け</button>
 
-          <div style={{ display:'flex', gap:'0.3rem', marginLeft:'0.5rem', flexWrap:'wrap' }}>
-            {(visibleKeys as ActiveKey[]).map(key => (
-              <button key={key} onClick={() => setActive(key)} style={{
-                padding: '0.25rem 0.65rem', borderRadius: '12px', fontSize: '0.75rem',
-                border: `2px solid ${active===key ? COLORS[key] : 'rgba(255,255,255,0.1)'}`,
-                background: active===key ? `${COLORS[key]}28` : 'transparent',
-                color: active===key ? '#fff' : '#94a3b8', cursor: 'pointer', fontWeight: active===key?700:400,
-              }}>{LABELS[key]}</button>
-            ))}
-          </div>
+          {/* Spacer */}
+          <div style={{ flex: 1 }} />
 
-          <div style={{ marginLeft:'auto', display:'flex', gap:'0.4rem' }}>
-            <button onClick={() => setState(DEFAULT_STATE)} style={{
-              padding:'0.35rem 0.7rem', borderRadius:'8px', border:'1px solid rgba(255,255,255,0.15)',
-              background:'rgba(255,255,255,0.07)', color:'#94a3b8', cursor:'pointer', fontSize:'0.8rem',
-              display:'flex',alignItems:'center',gap:'0.3rem'
-            }}><RotateCcw size={13}/> リセット</button>
-            <button onClick={() => setFullscreen(false)} style={{
-              padding:'0.35rem 0.7rem', borderRadius:'8px', border:'1px solid rgba(255,255,255,0.15)',
-              background:'rgba(255,255,255,0.07)', color:'#cbd5e1', cursor:'pointer', fontSize:'0.8rem',
-              display:'flex',alignItems:'center',gap:'0.3rem'
-            }}><X size={14}/> 閉じる</button>
-            <button onClick={handleConfirm} style={{
-              padding:'0.4rem 1rem', borderRadius:'8px',
-              background:'linear-gradient(135deg,#10b981,#059669)',
-              border:'none', color:'#fff', fontWeight:700, cursor:'pointer', fontSize:'0.85rem',
-              display:'flex',alignItems:'center',gap:'0.35rem',
-              boxShadow:'0 3px 12px rgba(16,185,129,0.4)'
-            }}><Check size={15}/> 確定＆開始</button>
-          </div>
+          {/* Reset + Close + Confirm */}
+          <button onClick={() => setState(DEFAULT_STATE)} style={{
+            padding: '0.3rem 0.55rem', borderRadius: '7px', border: '1px solid rgba(255,255,255,0.12)',
+            background: 'rgba(255,255,255,0.06)', color: '#94a3b8', cursor: 'pointer', fontSize: '0.75rem',
+            display: 'flex', alignItems: 'center', gap: '0.2rem',
+          }}><RotateCcw size={12}/></button>
+
+          <button onClick={() => setFullscreen(false)} style={{
+            padding: '0.3rem 0.55rem', borderRadius: '7px', border: '1px solid rgba(255,255,255,0.12)',
+            background: 'rgba(255,255,255,0.06)', color: '#cbd5e1', cursor: 'pointer', fontSize: '0.75rem',
+            display: 'flex', alignItems: 'center', gap: '0.2rem',
+          }}><X size={14}/></button>
+
+          <button onClick={handleConfirm} style={{
+            padding: '0.3rem 0.8rem', borderRadius: '7px',
+            background: 'linear-gradient(135deg,#10b981,#059669)',
+            border: 'none', color: '#fff', fontWeight: 700, cursor: 'pointer', fontSize: '0.8rem',
+            display: 'flex', alignItems: 'center', gap: '0.25rem',
+          }}><Check size={14}/> 確定</button>
         </div>
 
-        {/* Canvas fills rest of screen */}
+        {/* ── ROW 2: Part selector pills ── */}
+        <div style={{
+          display: 'flex', gap: '0.3rem', padding: '0.35rem 0.6rem',
+          background: 'rgba(15,23,42,0.92)',
+          borderBottom: '1px solid rgba(255,255,255,0.06)',
+          flexShrink: 0,
+          flexWrap: 'wrap',
+        }}>
+          {(visibleKeys as ActiveKey[]).map(key => (
+            <button key={key} onClick={() => setActive(key)} style={{
+              padding: '0.2rem 0.6rem', borderRadius: '10px', fontSize: '0.75rem',
+              border: `2px solid ${active===key ? COLORS[key] : 'rgba(255,255,255,0.1)'}`,
+              background: active===key ? `${COLORS[key]}30` : 'transparent',
+              color: active===key ? '#fff' : '#94a3b8', cursor: 'pointer', fontWeight: active===key?700:400,
+            }}>{LABELS[key]}</button>
+          ))}
+        </div>
+
+        {/* ── Canvas: fills all remaining space ── */}
         <div style={{
           flex: 1,
+          minHeight: 0,          // ← critical: lets flex child shrink below content size
           display: 'flex',
-          alignItems: 'center',
+          alignItems: 'stretch',
           justifyContent: 'center',
           overflow: 'hidden',
-          padding: '4px',
+          padding: '2px',
         }}>
           <EditorCanvas {...canvasProps} isFullscreen />
         </div>
 
-        {/* Bottom sliders */}
+        {/* ── Bottom sliders: 2×2 compact grid ── */}
         <div style={{
-          background: 'rgba(15,23,42,0.95)',
-          borderTop: '1px solid rgba(255,255,255,0.1)',
-          padding: '0.5rem 0.75rem',
+          background: 'rgba(15,23,42,0.97)',
+          borderTop: '1px solid rgba(255,255,255,0.08)',
+          padding: '0.45rem 0.65rem',
           display: 'grid',
-          gridTemplateColumns: '1fr 1fr 1fr 1fr',
-          gap: '0.4rem 0.75rem',
+          gridTemplateColumns: '1fr 1fr',
+          gap: '0.3rem 0.8rem',
           flexShrink: 0,
         }}>
           {(['x','y','width','height'] as const).map(field => (
-            <label key={field} style={{ display:'flex', flexDirection:'column', gap:'0.15rem' }}>
-              <span style={{ fontSize:'0.72rem', color:'#94a3b8' }}>
-                {field==='x'?'X位置':field==='y'?'Y位置':field==='width'?'横幅':'縦幅'} ({((state[active as keyof EditorState] as Box)[field]*100).toFixed(1)}%)
+            <label key={field} style={{ display:'flex', flexDirection:'column', gap:'0.08rem' }}>
+              <span style={{ fontSize:'0.68rem', color: COLORS[active], fontWeight: 600 }}>
+                {field==='x'?'X位置':field==='y'?'Y位置':field==='width'?'横幅':'縦幅'} {((state[active as keyof EditorState] as Box)[field]*100).toFixed(1)}%
               </span>
               <input type="range"
                 min={field==='width'||field==='height'?0.02:0}
@@ -465,7 +482,7 @@ export const PartPlacementEditor: React.FC = () => {
                   ...prev,
                   [active]: { ...(prev[active as keyof EditorState] as Box), [field]: Number(e.target.value) }
                 }))}
-                style={{ accentColor: COLORS[active], cursor:'pointer' }}
+                style={{ accentColor: COLORS[active], cursor:'pointer', width: '100%' }}
               />
             </label>
           ))}
@@ -473,6 +490,7 @@ export const PartPlacementEditor: React.FC = () => {
       </div>
     );
   }
+
 
   // ─ INLINE (compact) ─
   return (
