@@ -58,9 +58,15 @@ const EditorCanvas: React.FC<{
   setActive: (k: ActiveKey) => void;
   sheetImg: HTMLImageElement | null;
   baseImg: HTMLImageElement | null;
+  removeWhiteBg: boolean;
+  whiteThreshold: number;
   isFullscreen?: boolean;
-}> = ({ state, setState, mode, active, setActive, sheetImg, baseImg, isFullscreen }) => {
+}> = ({ state, setState, mode, active, setActive, sheetImg, baseImg, removeWhiteBg, whiteThreshold, isFullscreen }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const drawBoundsRef = useRef<{ drawX: number; drawY: number; drawW: number; drawH: number }>({
+    drawX: 0, drawY: 0, drawW: 1280, drawH: 720
+  });
+
   const dragRef = useRef<{
     key: ActiveKey; handle: DragHandle;
     startMX: number; startMY: number; startBox: Box;
@@ -78,7 +84,7 @@ const EditorCanvas: React.FC<{
     const cw = canvas.width;
     const ch = canvas.height;
 
-    // Checkerboard bg
+    // Checkerboard background
     ctx.clearRect(0, 0, cw, ch);
     for (let ty = 0; ty < ch; ty += 16)
       for (let tx = 0; tx < cw; tx += 16) {
@@ -86,55 +92,163 @@ const EditorCanvas: React.FC<{
         ctx.fillRect(tx, ty, 16, 16);
       }
 
-    if (mode === 'crop') {
-      // Right half of sheet only
-      if (sheetImg) {
-        const sw = sheetImg.naturalWidth || sheetImg.width;
-        const sh = sheetImg.naturalHeight || sheetImg.height;
-        ctx.drawImage(sheetImg, sw / 2, 0, sw / 2, sh, 0, 0, cw, ch);
+    // Calculate aspect-ratio-preserved bounds for half-sheet (width = sw/2, height = sh)
+    let drawW = cw;
+    let drawH = ch;
+    let drawX = 0;
+    let drawY = 0;
+
+    if (sheetImg) {
+      const sw = sheetImg.naturalWidth || sheetImg.width;
+      const sh = sheetImg.naturalHeight || sheetImg.height;
+      const sourceW = sw / 2;
+      const sourceH = sh;
+      const sourceAspect = sourceW / sourceH; // e.g. 960/1080 = 0.8888
+      const canvasAspect = cw / ch;
+
+      if (canvasAspect > sourceAspect) {
+        // Canvas is wider -> pillarbox left and right
+        drawH = ch;
+        drawW = ch * sourceAspect;
+        drawX = (cw - drawW) / 2;
+        drawY = 0;
+      } else {
+        // Canvas is taller -> letterbox top and bottom
+        drawW = cw;
+        drawH = cw / sourceAspect;
+        drawX = 0;
+        drawY = (ch - drawH) / 2;
       }
-      ctx.save();
-      ctx.fillStyle='rgba(255,255,255,0.45)'; ctx.font='bold 12px system-ui';
-      ctx.fillText('✂ パーツ切り抜きエリア (右側半分)', 8, 18);
-      ctx.restore();
-    } else {
-      // Left half of sheet only (base bust)
-      if (sheetImg) {
-        const sw = sheetImg.naturalWidth || sheetImg.width;
-        const sh = sheetImg.naturalHeight || sheetImg.height;
-        ctx.drawImage(sheetImg, 0, 0, sw / 2, sh, 0, 0, cw, ch);
+
+      drawBoundsRef.current = { drawX, drawY, drawW, drawH };
+
+      if (mode === 'crop') {
+        // Draw RIGHT HALF of sheet (Parts) un-stretched
+        ctx.drawImage(sheetImg, sw / 2, 0, sw / 2, sh, drawX, drawY, drawW, drawH);
+        ctx.save();
+        ctx.fillStyle = 'rgba(255,255,255,0.7)'; ctx.font = 'bold 13px system-ui';
+        ctx.fillText('✂ パーツ切り抜きエリア (右側半分)', drawX + 8, drawY + 22);
+        ctx.restore();
+      } else {
+        // Draw LEFT HALF of sheet (Base Bust) un-stretched
+        ctx.drawImage(sheetImg, 0, 0, sw / 2, sh, drawX, drawY, drawW, drawH);
+        ctx.save();
+        ctx.fillStyle = 'rgba(255,255,255,0.7)'; ctx.font = 'bold 13px system-ui';
+        ctx.fillText('📍 貼り付け位置指定 (左側素体)', drawX + 8, drawY + 22);
+        ctx.restore();
+
+        // ── LIVE RENDER CROPPED PARTS ON FACE ──
+        // Render eyesOpen cropped image inside eyesPlace box
+        const eCrop = state.eyesOpenCrop;
+        const eSx = sw / 2 + eCrop.x * (sw / 2);
+        const eSy = eCrop.y * sh;
+        const eSw = Math.max(1, eCrop.width * (sw / 2));
+        const eSh = Math.max(1, eCrop.height * sh);
+
+        const eBox = state.eyesPlace;
+        const eDx = drawX + eBox.x * drawW;
+        const eDy = drawY + eBox.y * drawH;
+        const eDw = eBox.width * drawW;
+        const eDh = eBox.height * drawH;
+
+        const tempEyes = document.createElement('canvas');
+        tempEyes.width = Math.max(1, Math.round(eSw));
+        tempEyes.height = Math.max(1, Math.round(eSh));
+        const tCtx = tempEyes.getContext('2d');
+        if (tCtx) {
+          tCtx.drawImage(sheetImg, eSx, eSy, eSw, eSh, 0, 0, tempEyes.width, tempEyes.height);
+          if (removeWhiteBg) {
+            const imgData = tCtx.getImageData(0, 0, tempEyes.width, tempEyes.height);
+            const d = imgData.data;
+            for (let i = 0; i < d.length; i += 4) {
+              if (d[i] >= whiteThreshold && d[i + 1] >= whiteThreshold && d[i + 2] >= whiteThreshold) {
+                d[i + 3] = 0;
+              }
+            }
+            tCtx.putImageData(imgData, 0, 0);
+          }
+          ctx.save();
+          ctx.globalAlpha = 0.95;
+          ctx.drawImage(tempEyes, eDx, eDy, eDw, eDh);
+          ctx.restore();
+        }
+
+        // Render mouthOpen cropped image inside mouthPlace box
+        const mCrop = state.mouthOpenCrop;
+        const mSx = sw / 2 + mCrop.x * (sw / 2);
+        const mSy = mCrop.y * sh;
+        const mSw = Math.max(1, mCrop.width * (sw / 2));
+        const mSh = Math.max(1, mCrop.height * sh);
+
+        const mBox = state.mouthPlace;
+        const mDx = drawX + mBox.x * drawW;
+        const mDy = drawY + mBox.y * drawH;
+        const mDw = mBox.width * drawW;
+        const mDh = mBox.height * drawH;
+
+        const tempMouth = document.createElement('canvas');
+        tempMouth.width = Math.max(1, Math.round(mSw));
+        tempMouth.height = Math.max(1, Math.round(mSh));
+        const tmCtx = tempMouth.getContext('2d');
+        if (tmCtx) {
+          tmCtx.drawImage(sheetImg, mSx, mSy, mSw, mSh, 0, 0, tempMouth.width, tempMouth.height);
+          if (removeWhiteBg) {
+            const imgData = tmCtx.getImageData(0, 0, tempMouth.width, tempMouth.height);
+            const d = imgData.data;
+            for (let i = 0; i < d.length; i += 4) {
+              if (d[i] >= whiteThreshold && d[i + 1] >= whiteThreshold && d[i + 2] >= whiteThreshold) {
+                d[i + 3] = 0;
+              }
+            }
+            tmCtx.putImageData(imgData, 0, 0);
+          }
+          ctx.save();
+          ctx.globalAlpha = 0.95;
+          ctx.drawImage(tempMouth, mDx, mDy, mDw, mDh);
+          ctx.restore();
+        }
       }
-      ctx.save();
-      ctx.fillStyle='rgba(255,255,255,0.45)'; ctx.font='bold 12px system-ui';
-      ctx.fillText('📍 貼り付け位置指定 (左側素体)', 8, 18);
-      ctx.restore();
     }
 
+    // Draw box overlays, borders, badges, and 8 handles
     for (const key of visibleKeys) {
       const box = state[key as keyof EditorState] as Box;
       const isAct = active === key;
 
-      const bx = box.x * cw;
-      const by = box.y * ch;
-      const bw = box.width * cw;
-      const bh = box.height * ch;
+      const bx = drawX + box.x * drawW;
+      const by = drawY + box.y * drawH;
+      const bw = box.width * drawW;
+      const bh = box.height * drawH;
       const color = COLORS[key];
 
-      ctx.save(); ctx.globalAlpha = isAct ? 0.18 : 0.07; ctx.fillStyle = color;
-      ctx.fillRect(bx, by, bw, bh); ctx.restore();
+      // Box inner fill
+      ctx.save();
+      ctx.globalAlpha = isAct ? 0.18 : 0.08;
+      ctx.fillStyle = color;
+      ctx.fillRect(bx, by, bw, bh);
+      ctx.restore();
 
-      ctx.save(); ctx.strokeStyle = color; ctx.lineWidth = isAct ? 2.5 : 1.5;
-      ctx.setLineDash(isAct ? [] : [5,4]); ctx.globalAlpha = isAct ? 1 : 0.55;
-      ctx.strokeRect(bx, by, bw, bh); ctx.restore();
+      // Border line
+      ctx.save();
+      ctx.strokeStyle = color;
+      ctx.lineWidth = isAct ? 2.5 : 1.5;
+      ctx.setLineDash(isAct ? [] : [5, 4]);
+      ctx.globalAlpha = isAct ? 1 : 0.6;
+      ctx.strokeRect(bx, by, bw, bh);
+      ctx.restore();
 
+      // Badge label
       const label = LABELS[key];
       ctx.save();
       ctx.font = `bold ${isAct ? 12 : 10}px system-ui`;
       const tw = ctx.measureText(label).width + 8;
-      ctx.fillStyle = color; ctx.globalAlpha = 0.92;
+      ctx.fillStyle = color;
+      ctx.globalAlpha = 0.92;
       ctx.fillRect(bx, Math.max(0, by - 18), tw, 17);
-      ctx.fillStyle = '#fff'; ctx.globalAlpha = 1;
-      ctx.fillText(label, bx + 4, Math.max(12, by - 5)); ctx.restore();
+      ctx.fillStyle = '#fff';
+      ctx.globalAlpha = 1;
+      ctx.fillText(label, bx + 4, Math.max(12, by - 5));
+      ctx.restore();
 
       // 8 Handles for active box
       if (isAct) {
@@ -169,7 +283,7 @@ const EditorCanvas: React.FC<{
         ctx.restore();
       }
     }
-  }, [state, active, mode, sheetImg, baseImg, visibleKeys]);
+  }, [state, active, mode, sheetImg, baseImg, removeWhiteBg, whiteThreshold, visibleKeys]);
 
   useEffect(() => { draw(); }, [draw]);
 
@@ -184,13 +298,16 @@ const EditorCanvas: React.FC<{
   };
 
   const hitTest = (cx: number, cy: number): { key: ActiveKey; handle: DragHandle } => {
-    const cw = canvasRef.current!.width, ch = canvasRef.current!.height;
+    const { drawX, drawY, drawW, drawH } = drawBoundsRef.current;
 
-    // 1. Check resize handles on the current active box first
+    // 1. Check resize handles on active box
     const activeBox = state[active as keyof EditorState] as Box;
     if (activeBox) {
-      const abx = activeBox.x * cw, aby = activeBox.y * ch, abw = activeBox.width * cw, abh = activeBox.height * ch;
-      const tol = 24; // Generous touch tolerance for handles
+      const abx = drawX + activeBox.x * drawW;
+      const aby = drawY + activeBox.y * drawH;
+      const abw = activeBox.width * drawW;
+      const abh = activeBox.height * drawH;
+      const tol = 24;
 
       if (Math.abs(cy - aby) <= tol && cx >= abx + 10 && cx <= abx + abw - 10) return { key: active, handle: 'n' };
       if (Math.abs(cy - (aby + abh)) <= tol && cx >= abx + 10 && cx <= abx + abw - 10) return { key: active, handle: 's' };
@@ -203,17 +320,20 @@ const EditorCanvas: React.FC<{
       if (Math.abs(cx - (abx + abw)) <= tol && Math.abs(cy - (aby + abh)) <= tol) return { key: active, handle: 'se' };
     }
 
-    // 2. Check if touching inside another visible box -> switch to it
+    // 2. Check if touching inside another visible box
     for (const key of [...visibleKeys].reverse()) {
       if (key === active) continue;
       const box = state[key as keyof EditorState] as Box;
-      const bx = box.x * cw, by = box.y * ch, bw = box.width * cw, bh = box.height * ch;
+      const bx = drawX + box.x * drawW;
+      const by = drawY + box.y * drawH;
+      const bw = box.width * drawW;
+      const bh = box.height * drawH;
       if (cx >= bx && cx <= bx + bw && cy >= by && cy <= by + bh) {
         return { key, handle: 'move' };
       }
     }
 
-    // 3. Touching anywhere else on the canvas -> move the selected active part box!
+    // 3. Touch anywhere else -> move current active box
     return { key: active, handle: 'move' };
   };
 
@@ -229,9 +349,9 @@ const EditorCanvas: React.FC<{
   const processDrag = (cx: number, cy: number) => {
     if (!dragRef.current) return;
     const { key, handle, startMX, startMY, startBox } = dragRef.current;
-    const cw = canvasRef.current!.width, ch = canvasRef.current!.height;
-    const dx = (cx - startMX) / cw;
-    const dy = (cy - startMY) / ch;
+    const { drawW, drawH } = drawBoundsRef.current;
+    const dx = (cx - startMX) / drawW;
+    const dy = (cy - startMY) / drawH;
     const minDim = 0.02;
 
     setState(prev => {
@@ -277,7 +397,6 @@ const EditorCanvas: React.FC<{
   const onTouchStart = (e: React.TouchEvent<HTMLCanvasElement>) => {
     const {cx,cy} = getCoords(e);
     const hit = hitTest(cx, cy);
-    if (!hit) return;
     setActive(hit.key);
     dragRef.current = { key: hit.key, handle: hit.handle, startMX: cx, startMY: cy,
       startBox: { ...(state[hit.key as keyof EditorState] as Box) } };
@@ -333,7 +452,6 @@ export const PartPlacementEditor: React.FC = () => {
   const [mode, setMode] = useState<'crop' | 'place'>('crop');
   const [active, setActive] = useState<ActiveKey>('eyesOpenCrop');
   const [state, setState] = useState<EditorState>(DEFAULT_STATE);
-  // Fullscreen open by default
   const [fullscreen, setFullscreen] = useState(true);
 
   const sheetImgRef = useRef<HTMLImageElement | null>(null);
@@ -450,11 +568,12 @@ export const PartPlacementEditor: React.FC = () => {
     state, setState, mode, active, setActive,
     sheetImg: sheetImgRef.current,
     baseImg: baseImgRef.current,
+    removeWhiteBg,
+    whiteThreshold,
   };
 
   const curBox = state[active as keyof EditorState] as Box;
 
-  // Symmetric width update (center X fixed)
   const setSymmetricWidth = (newW: number) => {
     setState(prev => {
       const b = prev[active as keyof EditorState] as Box;
@@ -464,7 +583,6 @@ export const PartPlacementEditor: React.FC = () => {
     });
   };
 
-  // Symmetric height update (center Y fixed)
   const setSymmetricHeight = (newH: number) => {
     setState(prev => {
       const b = prev[active as keyof EditorState] as Box;
@@ -493,7 +611,7 @@ export const PartPlacementEditor: React.FC = () => {
   const curCenterX = (curBox.x + curBox.width / 2);
   const curCenterY = (curBox.y + curBox.height / 2);
 
-  // ─ FULLSCREEN OVERLAY (PRIMARY EDITOR VIEW) ─
+  // ─ FULLSCREEN OVERLAY ─
   if (fullscreen) {
     return (
       <div style={{
@@ -535,7 +653,7 @@ export const PartPlacementEditor: React.FC = () => {
             display: 'flex', alignItems: 'center', gap: '0.25rem',
           }}><MapPin size={14}/> 2. 貼り付け</button>
 
-          {/* Integrated Transparency Slider in top bar */}
+          {/* Integrated Transparency Slider */}
           <div style={{
             display: 'flex', alignItems: 'center', gap: '0.4rem',
             background: 'rgba(0,0,0,0.35)', padding: '0.25rem 0.5rem',
@@ -616,7 +734,7 @@ export const PartPlacementEditor: React.FC = () => {
           <EditorCanvas {...canvasProps} isFullscreen />
         </div>
 
-        {/* ── Bottom sliders: Always visible with safe area padding ── */}
+        {/* ── Bottom sliders ── */}
         <div style={{
           background: 'rgba(15,23,42,0.98)',
           borderTop: '1px solid rgba(255,255,255,0.15)',
@@ -684,7 +802,6 @@ export const PartPlacementEditor: React.FC = () => {
     );
   }
 
-  // ─ COMPACT INLINE BACKUP VIEW ─
   return (
     <div style={{ display:'flex', flexDirection:'column', gap:'0.85rem' }}>
       <button
