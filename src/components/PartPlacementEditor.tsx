@@ -162,6 +162,8 @@ const EditorCanvas: React.FC<{
     if (sheetImg) {
       const sw = sheetImg.naturalWidth;
       const sh = sheetImg.naturalHeight;
+      if (!sw || !sh) return; // Wait for image to load
+
       const aspectImg = (sw / 2) / sh;
       const aspectCan = cw / ch;
 
@@ -511,20 +513,23 @@ export const PartPlacementEditor: React.FC = () => {
 
   useEffect(() => {
     if (!parsedAssetSheetParts) return;
+    const handleLoad = () => forceRedraw(n => n + 1);
+    
     const loadImg = (src: string) => {
-      const img = new Image(); img.src = src;
+      const img = new Image(); 
+      img.onload = handleLoad;
+      img.src = src;
       return img;
     };
+
     if (parsedAssetSheetParts._originalSheetDataUrl) {
       sheetImgRef.current = loadImg(parsedAssetSheetParts._originalSheetDataUrl);
-      sheetImgRef.current.onload = () => forceRedraw(n => n + 1);
     } else if (parsedAssetSheetParts.baseBustDataUrl) {
       sheetImgRef.current = loadImg(parsedAssetSheetParts.baseBustDataUrl);
-      sheetImgRef.current.onload = () => forceRedraw(n => n + 1);
     }
+    
     if (parsedAssetSheetParts.baseBustDataUrl) {
       baseImgRef.current = loadImg(parsedAssetSheetParts._originalSheetDataUrl || parsedAssetSheetParts.baseBustDataUrl);
-      baseImgRef.current.onload = () => forceRedraw(n => n + 1);
     }
   }, [parsedAssetSheetParts]);
 
