@@ -7,8 +7,9 @@ import { readPsd } from 'ag-psd';
 import { splitImageIntoHeadAndBody } from '../utils/avatarHelper';
 import type { PsdLayerData } from '../store/AppContext';
 
+import AssetUpload169 from './AssetUpload169';
 import AssetSheetGenerator from './AssetSheetGenerator';
-import { Sparkles, SlidersHorizontal } from 'lucide-react';
+import { Sparkles, SlidersHorizontal, UploadCloud } from 'lucide-react';
 
 const SettingsScreen: React.FC = () => {
   const { 
@@ -31,7 +32,7 @@ const SettingsScreen: React.FC = () => {
   const [processStatus, setProcessStatus] = useState<string>('');
   const [newProfileName, setNewProfileName] = useState<string>('');
   const [selectedProfile, setSelectedProfile] = useState<string>(currentProfileName || '');
-  const [activeTab, setActiveTab] = useState<'generator' | 'manual'>('generator');
+  const [activeTab, setActiveTab] = useState<'upload' | 'manual' | 'generator'>('upload');
 
   // デフォルトプロファイルが読み込まれたら自動的にメイン画面へ遷移する（1セッションに1回のみ）
   useEffect(() => {
@@ -233,25 +234,25 @@ const SettingsScreen: React.FC = () => {
       <div style={{ display: 'flex', justifyContent: 'center', gap: '1rem', marginBottom: '2rem' }}>
         <button
           type="button"
-          onClick={() => setActiveTab('generator')}
+          onClick={() => setActiveTab('upload')}
           style={{
             padding: '0.9rem 1.8rem',
             borderRadius: '14px',
             fontSize: '1.05rem',
             fontWeight: 700,
             cursor: 'pointer',
-            border: activeTab === 'generator' ? '1px solid #818cf8' : '1px solid rgba(255,255,255,0.1)',
-            background: activeTab === 'generator' ? 'linear-gradient(135deg, rgba(99, 102, 241, 0.4) 0%, rgba(168, 85, 247, 0.4) 100%)' : 'rgba(15, 23, 42, 0.6)',
+            border: activeTab === 'upload' ? '1px solid #818cf8' : '1px solid rgba(255,255,255,0.1)',
+            background: activeTab === 'upload' ? 'linear-gradient(135deg, rgba(99, 102, 241, 0.4) 0%, rgba(168, 85, 247, 0.4) 100%)' : 'rgba(15, 23, 42, 0.6)',
             color: '#ffffff',
-            boxShadow: activeTab === 'generator' ? '0 4px 20px rgba(99, 102, 241, 0.3)' : 'none',
+            boxShadow: activeTab === 'upload' ? '0 4px 20px rgba(99, 102, 241, 0.3)' : 'none',
             display: 'flex',
             alignItems: 'center',
             gap: '0.6rem',
             transition: 'all 0.2s ease'
           }}
         >
-          <Sparkles size={20} style={{ color: activeTab === 'generator' ? '#c084fc' : '#94a3b8' }} />
-          <span>16:9 VTuber アセットシート AI Studio</span>
+          <UploadCloud size={20} style={{ color: activeTab === 'upload' ? '#c084fc' : '#94a3b8' }} />
+          <span>16:9 アセット画像アップロード & 切り出し</span>
         </button>
 
         <button
@@ -274,12 +275,14 @@ const SettingsScreen: React.FC = () => {
           }}
         >
           <SlidersHorizontal size={20} style={{ color: activeTab === 'manual' ? '#c084fc' : '#94a3b8' }} />
-          <span>画像アップロード & 手動調整</span>
+          <span>手動調整 & PSD設定</span>
         </button>
       </div>
 
       {/* Tab Content */}
-      {activeTab === 'generator' ? (
+      {activeTab === 'upload' ? (
+        <AssetUpload169 />
+      ) : activeTab === 'generator' ? (
         <AssetSheetGenerator />
       ) : (
         <div style={{ display: 'flex', gap: '2rem', flexWrap: 'wrap', justifyContent: 'center' }}>
