@@ -3,7 +3,8 @@ import { useNavigate } from 'react-router-dom';
 import { useAppContext } from '../store/AppContext';
 import { parse16by9AssetSheet } from '../utils/avatarHelper';
 import { analyze16by9AssetSheetWithGemini } from '../services/geminiService';
-import { Upload, Play, CheckCircle2, Layers, Image as ImageIcon, Sparkles, Bot } from 'lucide-react';
+import { Upload, CheckCircle2, Sparkles } from 'lucide-react';
+import PartPlacementEditor from './PartPlacementEditor';
 
 export const AssetUpload169: React.FC = () => {
   const { 
@@ -217,7 +218,7 @@ export const AssetUpload169: React.FC = () => {
         </div>
       )}
 
-      {/* Sliced Layout Preview & Action Button */}
+      {/* Transparency slider always visible after upload */}
       {previewImage && parsedAssetSheetParts && (
         <div style={{
           background: 'rgba(15, 23, 42, 0.6)',
@@ -228,7 +229,6 @@ export const AssetUpload169: React.FC = () => {
           flexDirection: 'column',
           gap: '1.25rem'
         }}>
-          
           {/* 透過レベル調整スライダー */}
           <div style={{
             background: 'rgba(0,0,0,0.3)',
@@ -240,14 +240,13 @@ export const AssetUpload169: React.FC = () => {
             gap: '0.75rem'
           }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <label style={{ fontSize: '0.9rem', color: '#cbd5e1', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-                🎚️ 背景透過スライダースレッショルド (歯・口の透過防止)
+              <label style={{ fontSize: '0.9rem', color: '#cbd5e1', fontWeight: 600 }}>
+                🎚️ 背景透過スレッショルド (口の内部保護)
               </label>
               <span style={{ fontSize: '0.85rem', color: '#c084fc', fontFamily: 'monospace', fontWeight: 600 }}>
-                {whiteThreshold} / 255 {whiteThreshold >= 250 ? '(低感度: 純白のみ)' : whiteThreshold <= 210 ? '(高感度: 薄白も透過)' : '(標準)'}
+                {whiteThreshold} / 255 {whiteThreshold >= 250 ? '(低感度: 純白のみ)' : whiteThreshold <= 210 ? '(高感度)' : '(標準)'}
               </span>
             </div>
-
             <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
               <input
                 type="range"
@@ -264,7 +263,6 @@ export const AssetUpload169: React.FC = () => {
                 }}
                 style={{ flex: 1, accentColor: '#a855f7', cursor: 'pointer' }}
               />
-
               <label style={{ fontSize: '0.85rem', color: '#e2e8f0', display: 'flex', alignItems: 'center', gap: '0.4rem', cursor: 'pointer' }}>
                 <input
                   type="checkbox"
@@ -272,103 +270,13 @@ export const AssetUpload169: React.FC = () => {
                   onChange={(e) => setRemoveWhiteBg(e.target.checked)}
                   style={{ accentColor: '#a855f7' }}
                 />
-                背景白を自動透過
+                白背景透過
               </label>
             </div>
-
-            <p style={{ fontSize: '0.78rem', color: '#94a3b8', margin: 0 }}>
-              💡 口の中の「白い歯」に穴が開いてしまう場合は、スライダーを右（250方向）へ動かすと歯の白さを保護したまま綺麗に透過できます。
-            </p>
           </div>
 
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <h4 style={{ fontSize: '1.05rem', color: '#f8fafc', margin: 0, display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-              <Layers size={20} color="#a855f7" />
-              切り出しパーツのプレビュー (Live2D連動)
-            </h4>
-
-            <button
-              onClick={handleStartTracking}
-              style={{
-                background: 'linear-gradient(135deg, #10b981, #059669)',
-                color: '#ffffff',
-                border: 'none',
-                padding: '0.75rem 1.5rem',
-                borderRadius: '12px',
-                fontWeight: 600,
-                fontSize: '1rem',
-                cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '0.5rem',
-                boxShadow: '0 4px 15px rgba(16, 185, 129, 0.35)',
-                transition: 'all 0.2s ease'
-              }}
-            >
-              <Play size={20} fill="#ffffff" />
-              <span>WebCam トラッキングを開始する</span>
-            </button>
-          </div>
-
-          {/* Sliced Parts Grid */}
-          <div style={{ 
-            display: 'grid', 
-            gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', 
-            gap: '1rem' 
-          }}>
-            
-            {/* Part 1: Base Bust */}
-            <div style={{ background: 'rgba(0,0,0,0.3)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '12px', padding: '0.75rem', textAlign: 'center' }}>
-              <span style={{ fontSize: '0.8rem', color: '#94a3b8', display: 'block', marginBottom: '0.4rem' }}>
-                🖼️ 左半身: ベース素体
-              </span>
-              <div style={{ height: '140px', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'16\' height=\'16\' viewBox=\'0 0 16 16\'%3E%3Crect width=\'8\' height=\'8\' fill=\'%23334155\'/%3E%3Crect x=\'8\' width=\'8\' height=\'8\' fill=\'%231e293b\'/%3E%3Crect y=\'8\' width=\'8\' height=\'8\' fill=\'%231e293b\'/%3E%3Crect x=\'8\' y=\'8\' width=\'8\' height=\'8\' fill=\'%23334155\'/%3E%3C/svg%3E")', borderRadius: '8px', overflow: 'hidden' }}>
-                <img src={parsedAssetSheetParts.baseBustDataUrl} alt="Base Bust" style={{ maxHeight: '100%', maxWidth: '100%', objectFit: 'contain' }} />
-              </div>
-            </div>
-
-            {/* Part 2: Left Eye Open */}
-            <div style={{ background: 'rgba(0,0,0,0.3)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '12px', padding: '0.75rem', textAlign: 'center' }}>
-              <span style={{ fontSize: '0.8rem', color: '#94a3b8', display: 'block', marginBottom: '0.4rem' }}>
-                👀 左目 (開眼)
-              </span>
-              <div style={{ height: '140px', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'16\' height=\'16\' viewBox=\'0 0 16 16\'%3E%3Crect width=\'8\' height=\'8\' fill=\'%23334155\'/%3E%3Crect x=\'8\' width=\'8\' height=\'8\' fill=\'%231e293b\'/%3E%3Crect y=\'8\' width=\'8\' height=\'8\' fill=\'%231e293b\'/%3E%3Crect x=\'8\' y=\'8\' width=\'8\' height=\'8\' fill=\'%23334155\'/%3E%3C/svg%3E")', borderRadius: '8px', overflow: 'hidden' }}>
-                <img src={parsedAssetSheetParts.leftEyeOpenDataUrl || parsedAssetSheetParts.eyesOpenDataUrl} alt="Left Eye Open" style={{ maxHeight: '85%', maxWidth: '85%', objectFit: 'contain' }} />
-              </div>
-            </div>
-
-            {/* Part 3: Left Eye Closed */}
-            <div style={{ background: 'rgba(0,0,0,0.3)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '12px', padding: '0.75rem', textAlign: 'center' }}>
-              <span style={{ fontSize: '0.8rem', color: '#94a3b8', display: 'block', marginBottom: '0.4rem' }}>
-                😌 左目 (閉眼)
-              </span>
-              <div style={{ height: '140px', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'16\' height=\'16\' viewBox=\'0 0 16 16\'%3E%3Crect width=\'8\' height=\'8\' fill=\'%23334155\'/%3E%3Crect x=\'8\' width=\'8\' height=\'8\' fill=\'%231e293b\'/%3E%3Crect y=\'8\' width=\'8\' height=\'8\' fill=\'%231e293b\'/%3E%3Crect x=\'8\' y=\'8\' width=\'8\' height=\'8\' fill=\'%23334155\'/%3E%3C/svg%3E")', borderRadius: '8px', overflow: 'hidden' }}>
-                <img src={parsedAssetSheetParts.leftEyeClosedDataUrl || parsedAssetSheetParts.eyesClosedDataUrl} alt="Left Eye Closed" style={{ maxHeight: '85%', maxWidth: '85%', objectFit: 'contain' }} />
-              </div>
-            </div>
-
-            {/* Part 4: Mouth Open */}
-            <div style={{ background: 'rgba(0,0,0,0.3)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '12px', padding: '0.75rem', textAlign: 'center' }}>
-              <span style={{ fontSize: '0.8rem', color: '#94a3b8', display: 'block', marginBottom: '0.4rem' }}>
-                😮 口 (開口パーツ)
-              </span>
-              <div style={{ height: '140px', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'16\' height=\'16\' viewBox=\'0 0 16 16\'%3E%3Crect width=\'8\' height=\'8\' fill=\'%23334155\'/%3E%3Crect x=\'8\' width=\'8\' height=\'8\' fill=\'%231e293b\'/%3E%3Crect y=\'8\' width=\'8\' height=\'8\' fill=\'%231e293b\'/%3E%3Crect x=\'8\' y=\'8\' width=\'8\' height=\'8\' fill=\'%23334155\'/%3E%3C/svg%3E")', borderRadius: '8px', overflow: 'hidden' }}>
-                <img src={parsedAssetSheetParts.mouthOpenDataUrl} alt="Mouth Open" style={{ maxHeight: '85%', maxWidth: '85%', objectFit: 'contain' }} />
-              </div>
-            </div>
-
-            {/* Part 5: Mouth Closed */}
-            <div style={{ background: 'rgba(0,0,0,0.3)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '12px', padding: '0.75rem', textAlign: 'center' }}>
-              <span style={{ fontSize: '0.8rem', color: '#94a3b8', display: 'block', marginBottom: '0.4rem' }}>
-                😶 口 (閉口パーツ)
-              </span>
-              <div style={{ height: '140px', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'16\' height=\'16\' viewBox=\'0 0 16 16\'%3E%3Crect width=\'8\' height=\'8\' fill=\'%23334155\'/%3E%3Crect x=\'8\' width=\'8\' height=\'8\' fill=\'%231e293b\'/%3E%3Crect y=\'8\' width=\'8\' height=\'8\' fill=\'%231e293b\'/%3E%3Crect x=\'8\' y=\'8\' width=\'8\' height=\'8\' fill=\'%23334155\'/%3E%3C/svg%3E")', borderRadius: '8px', overflow: 'hidden' }}>
-                <img src={parsedAssetSheetParts.mouthClosedDataUrl} alt="Mouth Closed" style={{ maxHeight: '85%', maxWidth: '85%', objectFit: 'contain' }} />
-              </div>
-            </div>
-
-          </div>
-
+          {/* Interactive Part Placement Editor */}
+          <PartPlacementEditor />
         </div>
       )}
 
