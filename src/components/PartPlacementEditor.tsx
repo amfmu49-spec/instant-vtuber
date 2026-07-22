@@ -1,81 +1,98 @@
 import React, { useRef, useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAppContext } from '../store/AppContext';
-import { Play, Move, ZoomIn, ZoomOut, RotateCcw } from 'lucide-react';
+import { Play, Move, RotateCcw, Scissors, MapPin } from 'lucide-react';
 
-interface PartBox {
-  x: number; // 0-1 relative to base image
-  y: number;
-  width: number;
-  height: number;
+interface Box { x: number; y: number; width: number; height: number; }
+
+type CropKey = 'eyesOpenCrop' | 'eyesClosedCrop' | 'mouthOpenCrop' | 'mouthClosedCrop';
+type PlaceKey = 'eyesPlace' | 'mouthPlace';
+type ActiveKey = CropKey | PlaceKey;
+
+interface EditorState {
+  eyesOpenCrop: Box;
+  eyesClosedCrop: Box;
+  mouthOpenCrop: Box;
+  mouthClosedCrop: Box;
+  eyesPlace: Box;  // on left half face (0-0.5 relative to full img)
+  mouthPlace: Box;
 }
 
-interface DragState {
-  part: 'leftEye' | 'rightEye' | 'mouth' | null;
-  mode: 'move' | 'resize';
-  startMouseX: number;
-  startMouseY: number;
-  startBox: PartBox;
-}
+const COLORS: Record<string, string> = {
+  eyesOpenCrop: '#6366f1',
+  eyesClosedCrop: '#8b5cf6',
+  mouthOpenCrop: '#ec4899',
+  mouthClosedCrop: '#f43f5e',
+  eyesPlace: '#10b981',
+  mouthPlace: '#f59e0b',
+};
+
+const LABELS: Record<string, string> = {
+  eyesOpenCrop: '✂ 開眼 (右側から切り抜き)',
+  eyesClosedCrop: '✂ 閉眼 (右側から切り抜き)',
+  mouthOpenCrop: '✂ 開口 (右側から切り抜き)',
+  mouthClosedCrop: '✂ 閉口 (右側から切り抜き)',
+  eyesPlace: '📍 目の貼り付け位置 (左側素体)',
+  mouthPlace: '📍 口の貼り付け位置 (左側素体)',
+};
 
 export const PartPlacementEditor: React.FC = () => {
-  const { parsedAssetSheetParts, avatarCoords, setAvatarCoords } = useAppContext();
+  const { parsedAssetSheetParts, avatarCoords, setAvatarCoords, setParsedAssetSheetParts } = useAppContext();
   const navigate = useNavigate();
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const containerRef = useRef<HTMLDivElement>(null);
+  const [mode, setMode] = useState<'crop' | 'place'>('crop');
 
-  const [boxes, setBoxes] = useState<{ leftEye: PartBox; rightEye: PartBox; mouth: PartBox }>({
-    leftEye: { x: 0.28, y: 0.30, width: 0.16, height: 0.12 },
-    rightEye: { x: 0.56, y: 0.30, width: 0.16, height: 0.12 },
-    mouth: { x: 0.38, y: 0.52, width: 0.22, height: 0.14 },
+  const [state, setState] = useState<EditorState>({
+    // Default crop zones: Right half quadrants (x relative to FULL image 0-1)
+    eyesOpenCrop:   { x: 0.50, y: 0.02, width: 0.24, height: 0.45 },
+    eyesClosedCrop: { x: 0.76, y: 0.02, width: 0.24, height: 0.45 },
+    mouthOpenCrop:  { x: 0.50, y: 0.52, width: 0.24, height: 0.45 },
+    mouthClosedCrop:{ x: 0.76, y: 0.52, width: 0.24, height: 0.45 },
+    // Default placement zones: Left half (x 0-0.5 relative to base image = 0-1)
+    eyesPlace:  { x: 0.20, y: 0.25, width: 0.60, height: 0.22 },
+    mouthPlace: { x: 0.30, y: 0.52, width: 0.40, height: 0.18 },
   });
 
-  const [selected, setSelected] = useState<'leftEye' | 'rightEye' | 'mouth' | null>('leftEye');
-  const [dragState, setDragState] = useState<DragState | null>(null);
+  const [active, setActive] = useState<ActiveKey>('eyesOpenCrop');
+
   const baseImgRef = useRef<HTMLImageElement | null>(null);
-  const partsImgsRef = useRef<Record<string, HTMLImageElement>>({});
+  // Full 16:9 sheet image (for crop editor)
+  const [sheetDataUrl, setSheetDataUrl] = useState<string | null>(null);
 
-  // Initialize from existing avatarCoords if present
-  useEffect(() => {
-    if (avatarCoords?.leftEye && avatarCoords?.rightEye && avatarCoords?.mouth) {
-      setBoxes({
-        leftEye: avatarCoords.leftEye as PartBox,
-        rightEye: avatarCoords.rightEye as PartBox,
-        mouth: avatarCoords.mouth as PartBox,
-      });
-    }
-  }, []);
+  const dragRef = useRef<{
+    key: ActiveKey;
+    mode: 'move' | 'resize';
+    startMX: number;
+    startMY: number;
+    startBox: Box;
+  } | null>(null);
 
-  // Preload images
+  // Try to recover original sheet from parsedAssetSheetParts
   useEffect(() => {
     if (!parsedAssetSheetParts) return;
-
-    const loadImg = (src: string, key: string) => {
+    // If the base bust data url is stored, use it for display
+    if (parsedAssetSheetParts._originalSheetDataUrl) {
+      setSheetDataUrl(parsedAssetSheetParts._originalSheetDataUrl);
       const img = new Image();
-      img.onload = () => {
-        partsImgsRef.current[key] = img;
-        redraw();
-      };
-      img.src = src;
-    };
-
-    const base = new Image();
-    base.onload = () => {
-      baseImgRef.current = base;
-      redraw();
-    };
-    base.src = parsedAssetSheetParts.baseBustDataUrl;
-
-    loadImg(parsedAssetSheetParts.eyesOpenDataUrl || parsedAssetSheetParts.leftEyeOpenDataUrl, 'eyesOpen');
-    loadImg(parsedAssetSheetParts.eyesClosedDataUrl || parsedAssetSheetParts.leftEyeClosedDataUrl, 'eyesClosed');
-    loadImg(parsedAssetSheetParts.mouthOpenDataUrl, 'mouthOpen');
-    loadImg(parsedAssetSheetParts.mouthClosedDataUrl, 'mouthClosed');
+      img.onload = () => { baseImgRef.current = img; redraw(); };
+      img.src = parsedAssetSheetParts._originalSheetDataUrl;
+    } else if (parsedAssetSheetParts.baseBustDataUrl) {
+      // If no full sheet, use base bust
+      setSheetDataUrl(parsedAssetSheetParts.baseBustDataUrl);
+      const img = new Image();
+      img.onload = () => { baseImgRef.current = img; redraw(); };
+      img.src = parsedAssetSheetParts.baseBustDataUrl;
+    }
   }, [parsedAssetSheetParts]);
+
+  const activeKeys = mode === 'crop'
+    ? ['eyesOpenCrop', 'eyesClosedCrop', 'mouthOpenCrop', 'mouthClosedCrop'] as CropKey[]
+    : ['eyesPlace', 'mouthPlace'] as PlaceKey[];
 
   const redraw = useCallback(() => {
     const canvas = canvasRef.current;
-    const base = baseImgRef.current;
-    if (!canvas || !base) return;
+    const img = baseImgRef.current;
+    if (!canvas) return;
 
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
@@ -83,359 +100,406 @@ export const PartPlacementEditor: React.FC = () => {
     const cw = canvas.width;
     const ch = canvas.height;
 
+    // Checkerboard bg
     ctx.clearRect(0, 0, cw, ch);
-
-    // Draw checkerboard transparent background
-    const tileSize = 16;
-    for (let ty = 0; ty < ch; ty += tileSize) {
-      for (let tx = 0; tx < cw; tx += tileSize) {
-        const even = ((Math.floor(tx / tileSize) + Math.floor(ty / tileSize)) % 2 === 0);
-        ctx.fillStyle = even ? '#374151' : '#1f2937';
-        ctx.fillRect(tx, ty, tileSize, tileSize);
+    for (let ty = 0; ty < ch; ty += 16) {
+      for (let tx = 0; tx < cw; tx += 16) {
+        ctx.fillStyle = ((Math.floor(tx / 16) + Math.floor(ty / 16)) % 2 === 0) ? '#374151' : '#1f2937';
+        ctx.fillRect(tx, ty, 16, 16);
       }
     }
 
-    // Draw base face
-    ctx.drawImage(base, 0, 0, cw, ch);
+    if (img) {
+      if (mode === 'crop') {
+        // Show full 16:9 sheet (if available), else show base bust tiled
+        ctx.drawImage(img, 0, 0, cw, ch);
 
-    // Draw part overlays using current boxes
-    const partsToRender: Array<{ box: PartBox; imgKey: string; color: string; label: string; partKey: 'leftEye' | 'rightEye' | 'mouth' }> = [
-      { box: boxes.leftEye, imgKey: 'eyesOpen', color: '#6366f1', label: '👁 左目', partKey: 'leftEye' },
-      { box: boxes.rightEye, imgKey: 'eyesOpen', color: '#8b5cf6', label: '👁 右目', partKey: 'rightEye' },
-      { box: boxes.mouth, imgKey: 'mouthClosed', color: '#ec4899', label: '👄 口', partKey: 'mouth' },
-    ];
-
-    for (const { box, imgKey, color, label, partKey } of partsToRender) {
-      const bx = box.x * cw;
-      const by = box.y * ch;
-      const bw = box.width * cw;
-      const bh = box.height * ch;
-
-      const img = partsImgsRef.current[imgKey];
-      if (img) {
+        // Draw divider line at center
         ctx.save();
-        ctx.globalAlpha = 0.85;
-        ctx.drawImage(img, bx, by, bw, bh);
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.25)';
+        ctx.lineWidth = 2;
+        ctx.setLineDash([6, 4]);
+        ctx.beginPath();
+        ctx.moveTo(cw / 2, 0);
+        ctx.lineTo(cw / 2, ch);
+        ctx.stroke();
         ctx.restore();
+
+        // Labels
+        ctx.save();
+        ctx.fillStyle = 'rgba(255,255,255,0.55)';
+        ctx.font = 'bold 11px system-ui';
+        ctx.fillText('◀ 左半分: 素体 (のっぺらぼう)', 8, 14);
+        ctx.fillText('▶ 右半分: パーツ素材 (切り抜き元)', cw / 2 + 6, 14);
+        ctx.restore();
+      } else {
+        // In place mode, show just left half (base bust, 1x aspect) on full canvas
+        ctx.drawImage(img, 0, 0, cw, ch);
+      }
+    }
+
+    // Draw all boxes for current mode
+    const keys = mode === 'crop'
+      ? ['eyesOpenCrop', 'eyesClosedCrop', 'mouthOpenCrop', 'mouthClosedCrop'] as ActiveKey[]
+      : ['eyesPlace', 'mouthPlace'] as ActiveKey[];
+
+    for (const key of keys) {
+      const box = state[key as keyof EditorState] as Box;
+      const isActive = active === key;
+
+      // In place mode, the box coordinates are relative to the left half (0-1) -> canvas coords
+      let bx: number, by: number, bw: number, bh: number;
+      if (mode === 'place') {
+        bx = box.x * cw;
+        by = box.y * ch;
+        bw = box.width * cw;
+        bh = box.height * ch;
+      } else {
+        // crop: coordinates are 0-1 relative to full image
+        bx = box.x * cw;
+        by = box.y * ch;
+        bw = box.width * cw;
+        bh = box.height * ch;
       }
 
-      const isActive = selected === partKey;
+      const color = COLORS[key];
 
-      // Bounding box highlight
+      // Fill overlay
+      ctx.save();
+      ctx.globalAlpha = isActive ? 0.15 : 0.07;
+      ctx.fillStyle = color;
+      ctx.fillRect(bx, by, bw, bh);
+      ctx.restore();
+
+      // Border
       ctx.save();
       ctx.strokeStyle = color;
       ctx.lineWidth = isActive ? 2.5 : 1.5;
       ctx.setLineDash(isActive ? [] : [5, 4]);
-      ctx.globalAlpha = isActive ? 1.0 : 0.55;
+      ctx.globalAlpha = isActive ? 1.0 : 0.6;
       ctx.strokeRect(bx, by, bw, bh);
       ctx.restore();
 
-      // Label badge
+      // Label
+      const label = LABELS[key];
       ctx.save();
-      ctx.font = 'bold 11px system-ui';
+      ctx.font = `bold ${isActive ? 12 : 10}px system-ui`;
+      const tw = ctx.measureText(label).width + 8;
       ctx.fillStyle = color;
       ctx.globalAlpha = 0.9;
-      ctx.fillRect(bx, by - 18, ctx.measureText(label).width + 8, 17);
-      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(bx, by - 18, tw, 17);
+      ctx.fillStyle = '#fff';
+      ctx.globalAlpha = 1;
       ctx.fillText(label, bx + 4, by - 5);
       ctx.restore();
 
-      // Corner resize handle (active only)
+      // Resize handle
       if (isActive) {
-        const handles = [
-          { hx: bx + bw - 6, hy: by + bh - 6 },
-        ];
-        for (const h of handles) {
-          ctx.save();
-          ctx.fillStyle = '#ffffff';
-          ctx.strokeStyle = color;
-          ctx.lineWidth = 1.5;
-          ctx.fillRect(h.hx, h.hy, 10, 10);
-          ctx.strokeRect(h.hx, h.hy, 10, 10);
-          ctx.restore();
-        }
+        ctx.save();
+        ctx.fillStyle = '#fff';
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 2;
+        ctx.fillRect(bx + bw - 8, by + bh - 8, 14, 14);
+        ctx.strokeRect(bx + bw - 8, by + bh - 8, 14, 14);
+        ctx.restore();
       }
     }
-  }, [boxes, selected]);
+  }, [state, active, mode]);
 
-  useEffect(() => {
-    redraw();
-  }, [boxes, selected, redraw]);
+  useEffect(() => { redraw(); }, [state, active, mode, redraw]);
 
-  const getCanvasCoords = (e: React.MouseEvent<HTMLCanvasElement>): { cx: number; cy: number } => {
+  const getCanvasCoords = (e: React.MouseEvent | React.TouchEvent) => {
     const canvas = canvasRef.current!;
     const rect = canvas.getBoundingClientRect();
     const scaleX = canvas.width / rect.width;
     const scaleY = canvas.height / rect.height;
-    return {
-      cx: (e.clientX - rect.left) * scaleX,
-      cy: (e.clientY - rect.top) * scaleY,
-    };
+    let cx: number, cy: number;
+    if ('touches' in e) {
+      cx = (e.touches[0].clientX - rect.left) * scaleX;
+      cy = (e.touches[0].clientY - rect.top) * scaleY;
+    } else {
+      cx = (e.clientX - rect.left) * scaleX;
+      cy = (e.clientY - rect.top) * scaleY;
+    }
+    return { cx, cy };
   };
 
   const hitTest = (cx: number, cy: number) => {
-    const canvas = canvasRef.current!;
-    const cw = canvas.width;
-    const ch = canvas.height;
+    const cw = canvasRef.current!.width;
+    const ch = canvasRef.current!.height;
+    const keys = mode === 'crop'
+      ? ['eyesOpenCrop', 'eyesClosedCrop', 'mouthOpenCrop', 'mouthClosedCrop'] as ActiveKey[]
+      : ['eyesPlace', 'mouthPlace'] as ActiveKey[];
 
-    const parts = [
-      { key: 'leftEye' as const, box: boxes.leftEye },
-      { key: 'rightEye' as const, box: boxes.rightEye },
-      { key: 'mouth' as const, box: boxes.mouth },
-    ];
-
-    for (const { key, box } of parts) {
+    for (const key of [...keys].reverse()) {
+      const box = state[key as keyof EditorState] as Box;
       const bx = box.x * cw;
       const by = box.y * ch;
       const bw = box.width * cw;
       const bh = box.height * ch;
 
-      // Check resize handle first (bottom-right 14x14 corner)
-      if (selected === key && cx >= bx + bw - 14 && cx <= bx + bw + 2 && cy >= by + bh - 14 && cy <= by + bh + 2) {
-        return { part: key, mode: 'resize' as const };
+      if (active === key && cx >= bx + bw - 14 && cx <= bx + bw + 4 && cy >= by + bh - 14 && cy <= by + bh + 4) {
+        return { key, dragMode: 'resize' as const };
       }
-
-      // Check move area
       if (cx >= bx && cx <= bx + bw && cy >= by && cy <= by + bh) {
-        return { part: key, mode: 'move' as const };
+        return { key, dragMode: 'move' as const };
       }
     }
     return null;
   };
 
-  const onMouseDown = (e: React.MouseEvent<HTMLCanvasElement>) => {
+  const onPointerDown = (e: React.MouseEvent<HTMLCanvasElement>) => {
     const { cx, cy } = getCanvasCoords(e);
     const hit = hitTest(cx, cy);
-    if (!hit) {
-      setSelected(null);
-      return;
-    }
-    setSelected(hit.part);
-    setDragState({
-      part: hit.part,
-      mode: hit.mode,
-      startMouseX: cx,
-      startMouseY: cy,
-      startBox: { ...boxes[hit.part] },
-    });
+    if (!hit) { setActive(activeKeys[0]); return; }
+    setActive(hit.key);
+    dragRef.current = {
+      key: hit.key,
+      mode: hit.dragMode,
+      startMX: cx,
+      startMY: cy,
+      startBox: { ...(state[hit.key as keyof EditorState] as Box) },
+    };
     e.preventDefault();
   };
 
-  const onMouseMove = (e: React.MouseEvent<HTMLCanvasElement>) => {
-    if (!dragState || !dragState.part) return;
-
-    const canvas = canvasRef.current!;
-    const cw = canvas.width;
-    const ch = canvas.height;
+  const onPointerMove = (e: React.MouseEvent<HTMLCanvasElement>) => {
+    if (!dragRef.current) return;
     const { cx, cy } = getCanvasCoords(e);
+    const { key, mode: dmode, startMX, startMY, startBox } = dragRef.current;
+    const cw = canvasRef.current!.width;
+    const ch = canvasRef.current!.height;
+    const dx = (cx - startMX) / cw;
+    const dy = (cy - startMY) / ch;
 
-    const dx = (cx - dragState.startMouseX) / cw;
-    const dy = (cy - dragState.startMouseY) / ch;
-
-    setBoxes(prev => {
-      const startBox = dragState.startBox;
-      const part = dragState.part!;
-
-      let newBox: PartBox;
-      if (dragState.mode === 'move') {
-        newBox = {
+    setState(prev => {
+      let nb: Box;
+      if (dmode === 'move') {
+        nb = {
           ...startBox,
           x: Math.max(0, Math.min(1 - startBox.width, startBox.x + dx)),
           y: Math.max(0, Math.min(1 - startBox.height, startBox.y + dy)),
         };
       } else {
-        // resize
-        newBox = {
+        nb = {
           ...startBox,
-          width: Math.max(0.04, Math.min(0.9, startBox.width + dx)),
-          height: Math.max(0.03, Math.min(0.9, startBox.height + dy)),
+          width: Math.max(0.02, Math.min(1, startBox.width + dx)),
+          height: Math.max(0.02, Math.min(1, startBox.height + dy)),
         };
       }
-
-      return { ...prev, [part]: newBox };
+      return { ...prev, [key]: nb };
     });
   };
 
-  const onMouseUp = () => {
-    setDragState(null);
+  const onPointerUp = () => { dragRef.current = null; };
+
+  // Apply crops to parsedAssetSheetParts
+  const applyManualCrops = () => {
+    if (!parsedAssetSheetParts || !baseImgRef.current) return;
+    const img = baseImgRef.current;
+    const iw = img.width;
+    const ih = img.height;
+
+    const cropCanvas = (box: Box) => {
+      const c = document.createElement('canvas');
+      c.width = Math.max(1, Math.round(box.width * iw));
+      c.height = Math.max(1, Math.round(box.height * ih));
+      c.getContext('2d')?.drawImage(img, box.x * iw, box.y * ih, box.width * iw, box.height * ih, 0, 0, c.width, c.height);
+      return c.toDataURL();
+    };
+
+    const updatedParts = {
+      ...parsedAssetSheetParts,
+      eyesOpenDataUrl: cropCanvas(state.eyesOpenCrop),
+      eyesClosedDataUrl: cropCanvas(state.eyesClosedCrop),
+      mouthOpenDataUrl: cropCanvas(state.mouthOpenCrop),
+      mouthClosedDataUrl: cropCanvas(state.mouthClosedCrop),
+    };
+    setParsedAssetSheetParts(updatedParts);
   };
 
   const handleConfirm = () => {
+    applyManualCrops();
+
+    // eyesPlace: 0-1 relative to left half. 
+    // AvatarCoords leftEye/rightEye use 0-1 relative to baseImage
+    // Set leftEye = full eyesPlace (eyes as one unit)
     setAvatarCoords({
-      leftEye: boxes.leftEye,
-      rightEye: boxes.rightEye,
-      mouth: boxes.mouth,
+      leftEye: null,  // not used separately
+      rightEye: null,
+      mouth: state.mouthPlace,
       mouthState: 'closed',
       eyeState: 'open',
       neckY: 85,
       neckX: 50,
       removeWhiteBg: true,
-    });
+      eyesBox: state.eyesPlace,  // unified eyes placement
+    } as any);
     navigate('/main');
   };
 
-  const resetBoxes = () => {
-    setBoxes({
-      leftEye: { x: 0.28, y: 0.30, width: 0.16, height: 0.12 },
-      rightEye: { x: 0.56, y: 0.30, width: 0.16, height: 0.12 },
-      mouth: { x: 0.38, y: 0.52, width: 0.22, height: 0.14 },
+  const reset = () => {
+    setState({
+      eyesOpenCrop:   { x: 0.50, y: 0.02, width: 0.24, height: 0.45 },
+      eyesClosedCrop: { x: 0.76, y: 0.02, width: 0.24, height: 0.45 },
+      mouthOpenCrop:  { x: 0.50, y: 0.52, width: 0.24, height: 0.45 },
+      mouthClosedCrop:{ x: 0.76, y: 0.52, width: 0.24, height: 0.45 },
+      eyesPlace: { x: 0.20, y: 0.25, width: 0.60, height: 0.22 },
+      mouthPlace: { x: 0.30, y: 0.52, width: 0.40, height: 0.18 },
     });
   };
 
   if (!parsedAssetSheetParts) return null;
 
-  const partColors: Record<string, string> = {
-    leftEye: '#6366f1',
-    rightEye: '#8b5cf6',
-    mouth: '#ec4899',
-  };
+  const visibleKeys = mode === 'crop'
+    ? (['eyesOpenCrop', 'eyesClosedCrop', 'mouthOpenCrop', 'mouthClosedCrop'] as CropKey[])
+    : (['eyesPlace', 'mouthPlace'] as PlaceKey[]);
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
 
-      {/* Header */}
-      <div style={{
-        background: 'linear-gradient(135deg, rgba(99, 102, 241, 0.15), rgba(168, 85, 247, 0.15))',
-        border: '1px solid rgba(99, 102, 241, 0.3)',
-        borderRadius: '14px',
-        padding: '0.9rem 1.2rem',
-        display: 'flex',
-        alignItems: 'center',
-        gap: '0.75rem',
-        flexWrap: 'wrap',
-      }}>
-        <Move size={22} color="#a855f7" />
-        <div style={{ flex: 1 }}>
-          <h4 style={{ margin: 0, fontSize: '1rem', color: '#f8fafc', fontWeight: 700 }}>
-            🖱️ パーツ配置エディター — ドラッグして位置・サイズを調整
-          </h4>
-          <p style={{ margin: 0, fontSize: '0.8rem', color: '#94a3b8', marginTop: '0.2rem' }}>
-            目・口のボックスをドラッグして移動、右下コーナーをドラッグしてサイズ変更できます。
-          </p>
-        </div>
+      {/* Mode tabs */}
+      <div style={{ display: 'flex', gap: '0.5rem' }}>
         <button
-          onClick={resetBoxes}
+          onClick={() => { setMode('crop'); setActive('eyesOpenCrop'); }}
           style={{
-            background: 'rgba(255,255,255,0.07)',
-            border: '1px solid rgba(255,255,255,0.15)',
-            color: '#94a3b8',
-            padding: '0.4rem 0.9rem',
-            borderRadius: '8px',
+            flex: 1,
+            padding: '0.65rem',
+            borderRadius: '10px',
+            border: `2px solid ${mode === 'crop' ? '#6366f1' : 'rgba(255,255,255,0.1)'}`,
+            background: mode === 'crop' ? 'rgba(99,102,241,0.2)' : 'rgba(255,255,255,0.04)',
+            color: '#fff',
             cursor: 'pointer',
-            fontSize: '0.82rem',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '0.35rem',
+            fontWeight: mode === 'crop' ? 700 : 400,
+            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.4rem',
           }}
         >
-          <RotateCcw size={14} />
+          <Scissors size={16} />
+          ✂ STEP 1: 切り抜き位置を指定 (右側)
+        </button>
+        <button
+          onClick={() => { setMode('place'); setActive('eyesPlace'); }}
+          style={{
+            flex: 1,
+            padding: '0.65rem',
+            borderRadius: '10px',
+            border: `2px solid ${mode === 'place' ? '#10b981' : 'rgba(255,255,255,0.1)'}`,
+            background: mode === 'place' ? 'rgba(16,185,129,0.2)' : 'rgba(255,255,255,0.04)',
+            color: '#fff',
+            cursor: 'pointer',
+            fontWeight: mode === 'place' ? 700 : 400,
+            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.4rem',
+          }}
+        >
+          <MapPin size={16} />
+          📍 STEP 2: 貼り付け位置を指定 (左側)
+        </button>
+      </div>
+
+      {/* Part selector */}
+      <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
+        {(visibleKeys as ActiveKey[]).map(key => (
+          <button
+            key={key}
+            onClick={() => setActive(key)}
+            style={{
+              padding: '0.35rem 0.85rem',
+              borderRadius: '16px',
+              border: `2px solid ${active === key ? COLORS[key] : 'rgba(255,255,255,0.1)'}`,
+              background: active === key ? `${COLORS[key]}28` : 'rgba(255,255,255,0.04)',
+              color: active === key ? '#fff' : '#94a3b8',
+              cursor: 'pointer',
+              fontSize: '0.82rem',
+              fontWeight: active === key ? 700 : 400,
+            }}
+          >
+            {LABELS[key].replace('✂ ', '').replace('📍 ', '')}
+          </button>
+        ))}
+        <button
+          onClick={reset}
+          style={{
+            padding: '0.35rem 0.85rem',
+            borderRadius: '16px',
+            border: '1px solid rgba(255,255,255,0.1)',
+            background: 'rgba(255,255,255,0.04)',
+            color: '#94a3b8',
+            cursor: 'pointer',
+            fontSize: '0.82rem',
+            marginLeft: 'auto',
+            display: 'flex', alignItems: 'center', gap: '0.35rem',
+          }}
+        >
+          <RotateCcw size={13} />
           リセット
         </button>
       </div>
 
-      {/* Part selector buttons */}
-      <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
-        {([['leftEye', '👁 左目'], ['rightEye', '👁 右目'], ['mouth', '👄 口']] as const).map(([key, label]) => (
-          <button
-            key={key}
-            onClick={() => setSelected(key)}
-            style={{
-              padding: '0.45rem 1rem',
-              borderRadius: '20px',
-              border: `2px solid ${selected === key ? partColors[key] : 'rgba(255,255,255,0.1)'}`,
-              background: selected === key ? `${partColors[key]}33` : 'rgba(255,255,255,0.04)',
-              color: selected === key ? '#fff' : '#94a3b8',
-              cursor: 'pointer',
-              fontSize: '0.85rem',
-              fontWeight: selected === key ? 700 : 400,
-              transition: 'all 0.15s',
-            }}
-          >
-            {label}
-          </button>
-        ))}
-      </div>
-
       {/* Canvas */}
-      <div ref={containerRef} style={{ position: 'relative', borderRadius: '12px', overflow: 'hidden', boxShadow: '0 8px 32px rgba(0,0,0,0.5)', border: '1px solid rgba(255,255,255,0.1)' }}>
+      <div style={{ borderRadius: '12px', overflow: 'hidden', boxShadow: '0 8px 32px rgba(0,0,0,0.5)', border: '1px solid rgba(255,255,255,0.1)' }}>
         <canvas
           ref={canvasRef}
-          width={600}
-          height={750}
-          onMouseDown={onMouseDown}
-          onMouseMove={onMouseMove}
-          onMouseUp={onMouseUp}
-          onMouseLeave={onMouseUp}
-          style={{
-            width: '100%',
-            cursor: dragState ? 'grabbing' : 'crosshair',
-            display: 'block',
-            userSelect: 'none',
-          }}
+          width={700}
+          height={394}
+          onMouseDown={onPointerDown}
+          onMouseMove={onPointerMove}
+          onMouseUp={onPointerUp}
+          onMouseLeave={onPointerUp}
+          style={{ width: '100%', cursor: dragRef.current ? 'grabbing' : 'crosshair', display: 'block', userSelect: 'none' }}
         />
       </div>
 
-      {/* Numeric fine-tuning for selected part */}
-      {selected && (
-        <div style={{
-          background: 'rgba(15, 23, 42, 0.7)',
-          border: `1px solid ${partColors[selected]}44`,
-          borderRadius: '12px',
-          padding: '1rem',
-          display: 'grid',
-          gridTemplateColumns: '1fr 1fr',
-          gap: '0.75rem 1.25rem',
-        }}>
-          <h5 style={{ margin: 0, gridColumn: '1/-1', fontSize: '0.85rem', color: '#c084fc', fontWeight: 700 }}>
-            🎚️ {selected === 'leftEye' ? '👁 左目' : selected === 'rightEye' ? '👁 右目' : '👄 口'} — 数値で微調整
-          </h5>
-          {(['x', 'y', 'width', 'height'] as const).map(field => (
-            <label key={field} style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
-              <span style={{ fontSize: '0.78rem', color: '#94a3b8' }}>
-                {field === 'x' ? 'X位置' : field === 'y' ? 'Y位置' : field === 'width' ? '横幅' : '縦幅'} ({(boxes[selected][field] * 100).toFixed(1)}%)
-              </span>
-              <input
-                type="range"
-                min={field === 'width' || field === 'height' ? 0.02 : 0}
-                max={field === 'width' || field === 'height' ? 0.8 : 1}
-                step={0.005}
-                value={boxes[selected][field]}
-                onChange={(e) => {
-                  const val = Number(e.target.value);
-                  setBoxes(prev => ({
-                    ...prev,
-                    [selected]: { ...prev[selected], [field]: val }
-                  }));
-                }}
-                style={{ accentColor: partColors[selected], cursor: 'pointer' }}
-              />
-            </label>
-          ))}
+      {/* Sliders for selected box */}
+      <div style={{
+        background: 'rgba(15,23,42,0.7)',
+        border: `1px solid ${COLORS[active]}44`,
+        borderRadius: '12px',
+        padding: '0.85rem',
+        display: 'grid',
+        gridTemplateColumns: '1fr 1fr',
+        gap: '0.6rem 1rem',
+      }}>
+        <div style={{ gridColumn: '1/-1', fontSize: '0.82rem', color: COLORS[active], fontWeight: 700 }}>
+          🎚️ {LABELS[active]} — 数値微調整
         </div>
-      )}
+        {(['x', 'y', 'width', 'height'] as const).map(field => (
+          <label key={field} style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
+            <span style={{ fontSize: '0.75rem', color: '#94a3b8' }}>
+              {field === 'x' ? 'X位置' : field === 'y' ? 'Y位置' : field === 'width' ? '横幅' : '縦幅'} ({((state[active as keyof EditorState] as Box)[field] * 100).toFixed(1)}%)
+            </span>
+            <input
+              type="range"
+              min={field === 'width' || field === 'height' ? 0.02 : 0}
+              max={field === 'width' || field === 'height' ? 0.95 : 1}
+              step={0.005}
+              value={(state[active as keyof EditorState] as Box)[field]}
+              onChange={e => {
+                const v = Number(e.target.value);
+                setState(prev => ({ ...prev, [active]: { ...(prev[active as keyof EditorState] as Box), [field]: v } }));
+              }}
+              style={{ accentColor: COLORS[active], cursor: 'pointer' }}
+            />
+          </label>
+        ))}
+      </div>
 
-      {/* Confirm Button */}
       <button
         onClick={handleConfirm}
         style={{
           background: 'linear-gradient(135deg, #10b981, #059669)',
           color: '#fff',
           border: 'none',
-          padding: '1rem 2rem',
+          padding: '0.9rem 2rem',
           borderRadius: '14px',
           fontWeight: 700,
-          fontSize: '1.05rem',
+          fontSize: '1rem',
           cursor: 'pointer',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          gap: '0.6rem',
+          display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.6rem',
           boxShadow: '0 4px 20px rgba(16, 185, 129, 0.35)',
-          transition: 'all 0.2s ease',
         }}
       >
-        <Play size={22} fill="#fff" />
-        この配置で WebCam トラッキング開始 🎬
+        <Play size={20} fill="#fff" />
+        この配置で切り抜き＆WebCam トラッキング開始 🎬
       </button>
     </div>
   );

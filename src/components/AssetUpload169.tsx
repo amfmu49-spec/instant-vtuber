@@ -40,6 +40,8 @@ export const AssetUpload169: React.FC = () => {
       img.onload = async () => {
         try {
           const parsed = parse16by9AssetSheet(img);
+          // Store the full 16:9 sheet dataUrl so the editor can display it
+          (parsed as any)._originalSheetDataUrl = dataUrl;
 
           if (geminiApiKey) {
             try {

@@ -229,7 +229,7 @@ const SettingsScreen: React.FC = () => {
   };
 
   return (
-    <div className="animate-fade-in" style={{ width: '100%', maxWidth: '1200px', margin: '0 auto', padding: '1rem' }}>
+    <div className="animate-fade-in" style={{ width: '100%', maxWidth: '900px', margin: '0 auto', padding: '1rem', boxSizing: 'border-box' }}>
       {/* Top Main Navigation Tabs */}
       <div style={{ display: 'flex', justifyContent: 'center', gap: '1rem', marginBottom: '2rem' }}>
         <button

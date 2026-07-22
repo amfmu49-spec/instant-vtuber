@@ -29,6 +29,8 @@ const MainScreen: React.FC = () => {
   const showToolsRef = useRef(showTools);
 
   const assetSheetImagesRef = useRef<{
+    eyesOpen: HTMLImageElement | null;
+    eyesClosed: HTMLImageElement | null;
     leftEyeOpen: HTMLImageElement | null;
     rightEyeOpen: HTMLImageElement | null;
     leftEyeClosed: HTMLImageElement | null;
@@ -36,6 +38,8 @@ const MainScreen: React.FC = () => {
     mouthOpen: HTMLImageElement | null;
     mouthClosed: HTMLImageElement | null;
   }>({
+    eyesOpen: null,
+    eyesClosed: null,
     leftEyeOpen: null,
     rightEyeOpen: null,
     leftEyeClosed: null,
@@ -54,14 +58,18 @@ const MainScreen: React.FC = () => {
       };
 
       Promise.all([
+        loadImg(parsedAssetSheetParts.eyesOpenDataUrl),
+        loadImg(parsedAssetSheetParts.eyesClosedDataUrl),
         loadImg(parsedAssetSheetParts.leftEyeOpenDataUrl || parsedAssetSheetParts.eyesOpenDataUrl),
         loadImg(parsedAssetSheetParts.rightEyeOpenDataUrl || parsedAssetSheetParts.eyesOpenDataUrl),
         loadImg(parsedAssetSheetParts.leftEyeClosedDataUrl || parsedAssetSheetParts.eyesClosedDataUrl),
         loadImg(parsedAssetSheetParts.rightEyeClosedDataUrl || parsedAssetSheetParts.eyesClosedDataUrl),
         loadImg(parsedAssetSheetParts.mouthOpenDataUrl),
         loadImg(parsedAssetSheetParts.mouthClosedDataUrl)
-      ]).then(([leo, reo, lec, rec, mo, mc]) => {
+      ]).then(([eo, ec, leo, reo, lec, rec, mo, mc]) => {
         assetSheetImagesRef.current = {
+          eyesOpen: eo,
+          eyesClosed: ec,
           leftEyeOpen: leo,
           rightEyeOpen: reo,
           leftEyeClosed: lec,
@@ -72,6 +80,8 @@ const MainScreen: React.FC = () => {
       });
     } else {
       assetSheetImagesRef.current = {
+        eyesOpen: null,
+        eyesClosed: null,
         leftEyeOpen: null,
         rightEyeOpen: null,
         leftEyeClosed: null,
@@ -955,11 +965,45 @@ const MainScreen: React.FC = () => {
 
         if (coords) {
           const { leftEye, rightEye, mouth } = coords;
+          const eyesBox = (coords as any).eyesBox || null;
           const pX = smoothedX * 0.4;
           const pY = smoothedY * 0.4;
 
+          // === UNIFIED EYES BOX (both-eyes-as-one sprite) ===
+          if (eyesBox) {
+            const sc = partScalesRef.current.leftEye || 1;
+            const x = eyesBox.x * cw;
+            const y = eyesBox.y * ch;
+            const w = eyesBox.width * cw * sc;
+            const h = eyesBox.height * ch * sc;
+            const ox = x + (eyesBox.width * cw - w) / 2;
+            const oy = y + (eyesBox.height * ch - h) / 2;
+
+            const assetEyes = isEyeClosed
+              ? assetSheetImagesRef.current.eyesClosed
+              : assetSheetImagesRef.current.eyesOpen;
+
+            if (assetEyes) {
+              ctx.save();
+              if (coords && coords.neckY !== undefined) {
+                ctx.translate(pivotX + smoothedX, pivotY + smoothedY);
+                ctx.rotate(smoothedAngle);
+                ctx.translate(-pivotX, -pivotY);
+              }
+              ctx.translate(ox + w/2 + pX, oy + h/2 + pY);
+              const aAspect = assetEyes.width / assetEyes.height;
+              const bAspect = w / h;
+              let dw = w; let dh = h;
+              if (bAspect > aAspect) dw = h * aAspect; else dh = w / aAspect;
+              ctx.drawImage(assetEyes, -dw/2, -dh/2, dw, dh);
+              ctx.restore();
+            }
+          }
+
           const drawEye = (eye: any, isClosed: boolean, isLeft: boolean) => {
             if (!eye) return;
+            // Skip if we're using unified eyesBox
+            if (eyesBox) return;
             const sc = isLeft ? partScalesRef.current.leftEye : partScalesRef.current.rightEye;
             const x = eye.x * cw;
             const y = eye.y * ch;
