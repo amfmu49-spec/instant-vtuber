@@ -73,6 +73,66 @@ const EditorCanvas: React.FC<{
     startMX: number; startMY: number; startBox: Box;
   } | null>(null);
 
+  const croppedEyesCanvas = React.useMemo(() => {
+    if (!sheetImg || mode === 'crop') return null;
+    const sw = sheetImg.naturalWidth;
+    const sh = sheetImg.naturalHeight;
+    const eCrop = state.eyesOpenCrop;
+    const eSx = sw / 2 + eCrop.x * (sw / 2);
+    const eSy = eCrop.y * sh;
+    const eSw = Math.max(1, eCrop.width * (sw / 2));
+    const eSh = Math.max(1, eCrop.height * sh);
+
+    const tempEyes = document.createElement('canvas');
+    tempEyes.width = Math.max(1, Math.round(eSw));
+    tempEyes.height = Math.max(1, Math.round(eSh));
+    const tCtx = tempEyes.getContext('2d');
+    if (tCtx) {
+      tCtx.drawImage(sheetImg, eSx, eSy, eSw, eSh, 0, 0, tempEyes.width, tempEyes.height);
+      if (removeWhiteBg) {
+        const imgData = tCtx.getImageData(0, 0, tempEyes.width, tempEyes.height);
+        const d = imgData.data;
+        for (let i = 0; i < d.length; i += 4) {
+          if (d[i] >= whiteThreshold && d[i + 1] >= whiteThreshold && d[i + 2] >= whiteThreshold) {
+            d[i + 3] = 0;
+          }
+        }
+        tCtx.putImageData(imgData, 0, 0);
+      }
+    }
+    return tempEyes;
+  }, [sheetImg, mode, state.eyesOpenCrop, removeWhiteBg, whiteThreshold]);
+
+  const croppedMouthCanvas = React.useMemo(() => {
+    if (!sheetImg || mode === 'crop') return null;
+    const sw = sheetImg.naturalWidth;
+    const sh = sheetImg.naturalHeight;
+    const mCrop = state.mouthOpenCrop;
+    const mSx = sw / 2 + mCrop.x * (sw / 2);
+    const mSy = mCrop.y * sh;
+    const mSw = Math.max(1, mCrop.width * (sw / 2));
+    const mSh = Math.max(1, mCrop.height * sh);
+
+    const tempMouth = document.createElement('canvas');
+    tempMouth.width = Math.max(1, Math.round(mSw));
+    tempMouth.height = Math.max(1, Math.round(mSh));
+    const tmCtx = tempMouth.getContext('2d');
+    if (tmCtx) {
+      tmCtx.drawImage(sheetImg, mSx, mSy, mSw, mSh, 0, 0, tempMouth.width, tempMouth.height);
+      if (removeWhiteBg) {
+        const imgData = tmCtx.getImageData(0, 0, tempMouth.width, tempMouth.height);
+        const d = imgData.data;
+        for (let i = 0; i < d.length; i += 4) {
+          if (d[i] >= whiteThreshold && d[i + 1] >= whiteThreshold && d[i + 2] >= whiteThreshold) {
+            d[i + 3] = 0;
+          }
+        }
+        tmCtx.putImageData(imgData, 0, 0);
+      }
+    }
+    return tempMouth;
+  }, [sheetImg, mode, state.mouthOpenCrop, removeWhiteBg, whiteThreshold]);
+
   const visibleKeys: ActiveKey[] = mode === 'crop'
     ? (active ? [active] : [])
     : ['eyesPlace', 'mouthPlace'];
@@ -100,21 +160,19 @@ const EditorCanvas: React.FC<{
     let drawY = 0;
 
     if (sheetImg) {
-      const sw = sheetImg.naturalWidth || sheetImg.width;
-      const sh = sheetImg.naturalHeight || sheetImg.height;
-      const sourceW = sw / 2;
-      const sourceH = sh;
-      const sourceAspect = sourceW / sourceH;
-      const canvasAspect = cw / ch;
+      const sw = sheetImg.naturalWidth;
+      const sh = sheetImg.naturalHeight;
+      const aspectImg = (sw / 2) / sh;
+      const aspectCan = cw / ch;
 
-      if (canvasAspect > sourceAspect) {
+      if (aspectCan > aspectImg) {
         drawH = ch;
-        drawW = ch * sourceAspect;
+        drawW = drawH * aspectImg;
         drawX = (cw - drawW) / 2;
         drawY = 0;
       } else {
         drawW = cw;
-        drawH = cw / sourceAspect;
+        drawH = drawW / aspectImg;
         drawX = 0;
         drawY = (ch - drawH) / 2;
       }
@@ -136,6 +194,12 @@ const EditorCanvas: React.FC<{
         ctx.translate(focusX, focusY);
         ctx.scale(zoomScale, zoomScale);
         ctx.translate(-focusX, -focusY);
+      } else {
+        const cx = cw / 2;
+        const cy = ch / 2;
+        ctx.translate(cx, cy);
+        ctx.scale(zoomScale, zoomScale);
+        ctx.translate(-cx, -cy);
       }
 
       if (mode === 'crop') {
@@ -154,73 +218,27 @@ const EditorCanvas: React.FC<{
         ctx.restore();
 
         // ── LIVE RENDER CROPPED PARTS ON FACE ──
-        // Render eyesOpen cropped image inside eyesPlace box
-        const eCrop = state.eyesOpenCrop;
-        const eSx = sw / 2 + eCrop.x * (sw / 2);
-        const eSy = eCrop.y * sh;
-        const eSw = Math.max(1, eCrop.width * (sw / 2));
-        const eSh = Math.max(1, eCrop.height * sh);
-
-        const eBox = state.eyesPlace;
-        const eDx = drawX + eBox.x * drawW;
-        const eDy = drawY + eBox.y * drawH;
-        const eDw = eBox.width * drawW;
-        const eDh = eBox.height * drawH;
-
-        const tempEyes = document.createElement('canvas');
-        tempEyes.width = Math.max(1, Math.round(eSw));
-        tempEyes.height = Math.max(1, Math.round(eSh));
-        const tCtx = tempEyes.getContext('2d');
-        if (tCtx) {
-          tCtx.drawImage(sheetImg, eSx, eSy, eSw, eSh, 0, 0, tempEyes.width, tempEyes.height);
-          if (removeWhiteBg) {
-            const imgData = tCtx.getImageData(0, 0, tempEyes.width, tempEyes.height);
-            const d = imgData.data;
-            for (let i = 0; i < d.length; i += 4) {
-              if (d[i] >= whiteThreshold && d[i + 1] >= whiteThreshold && d[i + 2] >= whiteThreshold) {
-                d[i + 3] = 0;
-              }
-            }
-            tCtx.putImageData(imgData, 0, 0);
-          }
+        if (croppedEyesCanvas) {
+          const eBox = state.eyesPlace;
+          const eDx = drawX + eBox.x * drawW;
+          const eDy = drawY + eBox.y * drawH;
+          const eDw = eBox.width * drawW;
+          const eDh = eBox.height * drawH;
           ctx.save();
           ctx.globalAlpha = 0.95;
-          ctx.drawImage(tempEyes, eDx, eDy, eDw, eDh);
+          ctx.drawImage(croppedEyesCanvas, eDx, eDy, eDw, eDh);
           ctx.restore();
         }
 
-        // Render mouthOpen cropped image inside mouthPlace box
-        const mCrop = state.mouthOpenCrop;
-        const mSx = sw / 2 + mCrop.x * (sw / 2);
-        const mSy = mCrop.y * sh;
-        const mSw = Math.max(1, mCrop.width * (sw / 2));
-        const mSh = Math.max(1, mCrop.height * sh);
-
-        const mBox = state.mouthPlace;
-        const mDx = drawX + mBox.x * drawW;
-        const mDy = drawY + mBox.y * drawH;
-        const mDw = mBox.width * drawW;
-        const mDh = mBox.height * drawH;
-
-        const tempMouth = document.createElement('canvas');
-        tempMouth.width = Math.max(1, Math.round(mSw));
-        tempMouth.height = Math.max(1, Math.round(mSh));
-        const tmCtx = tempMouth.getContext('2d');
-        if (tmCtx) {
-          tmCtx.drawImage(sheetImg, mSx, mSy, mSw, mSh, 0, 0, tempMouth.width, tempMouth.height);
-          if (removeWhiteBg) {
-            const imgData = tmCtx.getImageData(0, 0, tempMouth.width, tempMouth.height);
-            const d = imgData.data;
-            for (let i = 0; i < d.length; i += 4) {
-              if (d[i] >= whiteThreshold && d[i + 1] >= whiteThreshold && d[i + 2] >= whiteThreshold) {
-                d[i + 3] = 0;
-              }
-            }
-            tmCtx.putImageData(imgData, 0, 0);
-          }
+        if (croppedMouthCanvas) {
+          const mBox = state.mouthPlace;
+          const mDx = drawX + mBox.x * drawW;
+          const mDy = drawY + mBox.y * drawH;
+          const mDw = mBox.width * drawW;
+          const mDh = mBox.height * drawH;
           ctx.save();
           ctx.globalAlpha = 0.95;
-          ctx.drawImage(tempMouth, mDx, mDy, mDw, mDh);
+          ctx.drawImage(croppedMouthCanvas, mDx, mDy, mDw, mDh);
           ctx.restore();
         }
       }
