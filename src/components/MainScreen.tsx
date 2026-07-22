@@ -983,7 +983,16 @@ const MainScreen: React.FC = () => {
               : (isClosed ? assetSheetImagesRef.current.rightEyeClosed : assetSheetImagesRef.current.rightEyeOpen);
 
             if (assetEye) {
-              ctx.drawImage(assetEye, -w/2, -h/2, w, h);
+              const aAspect = assetEye.width / assetEye.height;
+              const bAspect = w / h;
+              let dw = w;
+              let dh = h;
+              if (bAspect > aAspect) {
+                dw = h * aAspect;
+              } else {
+                dh = w / aAspect;
+              }
+              ctx.drawImage(assetEye, -dw/2, -dh/2, dw, dh);
             } else if (selectedEyeImgRef.current) {
                 // カスタムSVGパーツを使う場合は肌色下地を先に描く
                 const skin = customColors?.[isLeft ? 'leftEye' : 'rightEye'] || sampledColorsRef.current[isLeft ? 'leftEye' : 'rightEye'];
@@ -1073,7 +1082,16 @@ const MainScreen: React.FC = () => {
               ctx.translate(mox + mw/2 + pX, moy + mh/2 + pY);
 
                if (assetMouth) {
-                   ctx.drawImage(assetMouth, -mw/2, -mh/2, mw, mh);
+                   const aAspect = assetMouth.width / assetMouth.height;
+                   const bAspect = mw / mh;
+                   let dw = mw;
+                   let dh = mh;
+                   if (bAspect > aAspect) {
+                     dw = mh * aAspect;
+                   } else {
+                     dh = mw / aAspect;
+                   }
+                   ctx.drawImage(assetMouth, -dw/2, -dh/2, dw, dh);
                } else if (selectedMouthImgRef.current) {
                     // カスタムSVGパーツ：閉じた状態から口を開く
                     let stretchX = 1.0;

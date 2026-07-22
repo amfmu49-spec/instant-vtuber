@@ -331,6 +331,8 @@ const applyFeatherBox = (canvas: HTMLCanvasElement, featherPx: number = 6) => {
 export interface Parsed16by9AssetSheet {
   baseBustCanvas: HTMLCanvasElement;
   baseBustDataUrl: string;
+  eyesOpenCanvas: HTMLCanvasElement;
+  eyesClosedCanvas: HTMLCanvasElement;
   leftEyeOpenCanvas: HTMLCanvasElement;
   rightEyeOpenCanvas: HTMLCanvasElement;
   leftEyeClosedCanvas: HTMLCanvasElement;
@@ -348,6 +350,7 @@ export interface Parsed16by9AssetSheet {
   suggestedCoords: {
     leftEye: { x: number; y: number; width: number; height: number };
     rightEye: { x: number; y: number; width: number; height: number };
+    bothEyes: { x: number; y: number; width: number; height: number };
     mouth: { x: number; y: number; width: number; height: number };
   };
 }
@@ -421,13 +424,83 @@ export const autotrimCanvas = (
   return outCanvas;
 };
 
+// スマート目間ギャップ（ピクセル密度解析）自動分離関数
+const splitEyeQuadrantIntoLeftAndRight = (
+  rawQuadrantCanvas: HTMLCanvasElement
+): { leftEye: HTMLCanvasElement; rightEye: HTMLCanvasElement } => {
+  const w = rawQuadrantCanvas.width;
+  const h = rawQuadrantCanvas.height;
+  const ctx = rawQuadrantCanvas.getContext('2d');
+
+  if (!ctx || w < 20 || h < 20) {
+    const halfW = Math.floor(w / 2);
+    const c1 = document.createElement('canvas'); c1.width = halfW; c1.height = h;
+    const c2 = document.createElement('canvas'); c2.width = halfW; c2.height = h;
+    c1.getContext('2d')?.drawImage(rawQuadrantCanvas, 0, 0, halfW, h, 0, 0, halfW, h);
+    c2.getContext('2d')?.drawImage(rawQuadrantCanvas, halfW, 0, halfW, h, 0, 0, halfW, h);
+    return { leftEye: autotrimCanvas(c1), rightEye: autotrimCanvas(c2) };
+  }
+
+  const imgData = ctx.getImageData(0, 0, w, h);
+  const data = imgData.data;
+
+  // 垂直方向の不透明ピクセル密度プロファイルを計算
+  const colDensity = new Array(w).fill(0);
+  for (let x = 0; x < w; x++) {
+    for (let y = 0; y < h; y++) {
+      const idx = (y * w + x) * 4;
+      const r = data[idx];
+      const g = data[idx + 1];
+      const b = data[idx + 2];
+      const a = data[idx + 3];
+
+      const isWhite = (r > 235 && g > 235 && b > 235);
+      if (a > 30 && !isWhite) {
+        colDensity[x]++;
+      }
+    }
+  }
+
+  // Xの25%〜75%の範囲で、ピクセル密度が最小となる「目の間のギャップ（谷間）」の位置を探す
+  const startX = Math.floor(w * 0.25);
+  const endX = Math.floor(w * 0.75);
+  let minDensity = Infinity;
+  let splitX = Math.floor(w / 2);
+
+  for (let x = startX; x <= endX; x++) {
+    if (colDensity[x] < minDensity) {
+      minDensity = colDensity[x];
+      splitX = x;
+    }
+  }
+
+  // 分離キャンバスの生成
+  const leftW = splitX;
+  const rightW = w - splitX;
+
+  const leftCanvas = document.createElement('canvas');
+  leftCanvas.width = leftW;
+  leftCanvas.height = h;
+  leftCanvas.getContext('2d')?.drawImage(rawQuadrantCanvas, 0, 0, leftW, h, 0, 0, leftW, h);
+
+  const rightCanvas = document.createElement('canvas');
+  rightCanvas.width = rightW;
+  rightCanvas.height = h;
+  rightCanvas.getContext('2d')?.drawImage(rawQuadrantCanvas, splitX, 0, rightW, h, 0, 0, rightW, h);
+
+  return {
+    leftEye: autotrimCanvas(leftCanvas, true),
+    rightEye: autotrimCanvas(rightCanvas, true)
+  };
+};
+
 export const parse16by9AssetSheet = (img: HTMLImageElement): Parsed16by9AssetSheet => {
   const fullWidth = img.width;
   const fullHeight = img.height;
 
   const halfWidth = Math.floor(fullWidth / 2);
 
-  // 1. Create Base Bust Canvas from Left Half (0 -> 50% X)
+  // 1. Base Bust Canvas (0 -> 50% X)
   const baseBustCanvas = document.createElement('canvas');
   baseBustCanvas.width = halfWidth;
   baseBustCanvas.height = fullHeight;
@@ -436,7 +509,7 @@ export const parse16by9AssetSheet = (img: HTMLImageElement): Parsed16by9AssetShe
   if (baseCtx) {
     baseCtx.drawImage(img, 0, 0, halfWidth, fullHeight, 0, 0, halfWidth, fullHeight);
     
-    // Remove white background if present
+    // 背景の白線・背景を自動透過
     const imgData = baseCtx.getImageData(0, 0, halfWidth, fullHeight);
     const data = imgData.data;
     for (let i = 0; i < data.length; i += 4) {
@@ -447,11 +520,11 @@ export const parse16by9AssetSheet = (img: HTMLImageElement): Parsed16by9AssetShe
     baseCtx.putImageData(imgData, 0, 0);
   }
 
-  // Helper to extract sub-regions of the right half
-  const extractQuadrant = (
-    relMinX: number, // 0 to 1 relative to Right Half width
+  // クアドラント取得ヘルパー (Raw未トリミング)
+  const extractRawQuadrant = (
+    relMinX: number,
     relMaxX: number,
-    relMinY: number, // 0 to 1 relative to Right Half height
+    relMinY: number,
     relMaxY: number
   ): HTMLCanvasElement => {
     const qX = halfWidth + Math.floor(relMinX * halfWidth);
@@ -466,33 +539,40 @@ export const parse16by9AssetSheet = (img: HTMLImageElement): Parsed16by9AssetShe
     if (tempCtx) {
       tempCtx.drawImage(img, qX, qY, qW, qH, 0, 0, qW, qH);
     }
-    return autotrimCanvas(tempCanvas, true);
+    return tempCanvas;
   };
 
-  // Full Quadrant Canvases (Both Eyes)
-  const eyesOpenCanvas = extractQuadrant(0.0, 0.5, 0.0, 0.5);
-  const eyesClosedCanvas = extractQuadrant(0.5, 1.0, 0.0, 0.5);
+  // 1. 開眼クアドラント (Top-Left of Right Half: 0.0~0.5 X, 0.0~0.5 Y)
+  const rawEyesOpen = extractRawQuadrant(0.0, 0.5, 0.0, 0.5);
+  const eyesOpenCanvas = autotrimCanvas(rawEyesOpen, true);
+  const { leftEye: leftEyeOpenCanvas, rightEye: rightEyeOpenCanvas } = splitEyeQuadrantIntoLeftAndRight(rawEyesOpen);
 
-  // Individual Single Eye Canvases (Split Quadrants horizontally)
-  const leftEyeOpenCanvas = extractQuadrant(0.0, 0.25, 0.0, 0.5);
-  const rightEyeOpenCanvas = extractQuadrant(0.25, 0.5, 0.0, 0.5);
-  const leftEyeClosedCanvas = extractQuadrant(0.5, 0.75, 0.0, 0.5);
-  const rightEyeClosedCanvas = extractQuadrant(0.75, 1.0, 0.0, 0.5);
+  // 2. 閉眼クアドラント (Top-Right of Right Half: 0.5~1.0 X, 0.0~0.5 Y)
+  const rawEyesClosed = extractRawQuadrant(0.5, 1.0, 0.0, 0.5);
+  const eyesClosedCanvas = autotrimCanvas(rawEyesClosed, true);
+  const { leftEye: leftEyeClosedCanvas, rightEye: rightEyeClosedCanvas } = splitEyeQuadrantIntoLeftAndRight(rawEyesClosed);
 
-  // Mouth Canvases
-  const mouthOpenCanvas = extractQuadrant(0.0, 0.5, 0.5, 1.0);
-  const mouthClosedCanvas = extractQuadrant(0.5, 1.0, 0.5, 1.0);
+  // 3. 開口クアドラント (Bottom-Left of Right Half: 0.0~0.5 X, 0.5~1.0 Y)
+  const rawMouthOpen = extractRawQuadrant(0.0, 0.5, 0.5, 1.0);
+  const mouthOpenCanvas = autotrimCanvas(rawMouthOpen, true);
 
-  // Precise anatomical suggested bounding boxes for placement on the blank face (relative to left half)
+  // 4. 閉口クアドラント (Bottom-Right of Right Half: 0.5~1.0 X, 0.5~1.0 Y)
+  const rawMouthClosed = extractRawQuadrant(0.5, 1.0, 0.5, 1.0);
+  const mouthClosedCanvas = autotrimCanvas(rawMouthClosed, true);
+
+  // 推奨顔パーツ位置座標
   const suggestedCoords = {
     leftEye: { x: 0.27, y: 0.33, width: 0.17, height: 0.14 },
     rightEye: { x: 0.56, y: 0.33, width: 0.17, height: 0.14 },
+    bothEyes: { x: 0.22, y: 0.28, width: 0.56, height: 0.22 },
     mouth: { x: 0.40, y: 0.53, width: 0.20, height: 0.13 }
   };
 
   return {
     baseBustCanvas,
     baseBustDataUrl: baseBustCanvas.toDataURL(),
+    eyesOpenCanvas,
+    eyesClosedCanvas,
     leftEyeOpenCanvas,
     rightEyeOpenCanvas,
     leftEyeClosedCanvas,
