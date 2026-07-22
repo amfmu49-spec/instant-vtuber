@@ -1,7 +1,7 @@
 import React, { useRef, useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAppContext } from '../store/AppContext';
-import { Play, RotateCcw, Scissors, MapPin, Maximize2, X, Check, Sliders } from 'lucide-react';
+import { Play, RotateCcw, Scissors, MapPin, Maximize2, X, Check, Sliders, ZoomIn } from 'lucide-react';
 
 interface Box { x: number; y: number; width: number; height: number; }
 
@@ -60,8 +60,9 @@ const EditorCanvas: React.FC<{
   baseImg: HTMLImageElement | null;
   removeWhiteBg: boolean;
   whiteThreshold: number;
+  zoomScale: number;
   isFullscreen?: boolean;
-}> = ({ state, setState, mode, active, setActive, sheetImg, baseImg, removeWhiteBg, whiteThreshold, isFullscreen }) => {
+}> = ({ state, setState, mode, active, setActive, sheetImg, baseImg, removeWhiteBg, whiteThreshold, zoomScale, isFullscreen }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const drawBoundsRef = useRef<{ drawX: number; drawY: number; drawW: number; drawH: number }>({
     drawX: 0, drawY: 0, drawW: 1280, drawH: 720
@@ -72,8 +73,6 @@ const EditorCanvas: React.FC<{
     startMX: number; startMY: number; startBox: Box;
   } | null>(null);
 
-  // In crop mode: only render active crop box if selected (clean sheet by default)
-  // In place mode: render placement boxes
   const visibleKeys: ActiveKey[] = mode === 'crop'
     ? (active ? [active] : [])
     : ['eyesPlace', 'mouthPlace'];
@@ -94,7 +93,7 @@ const EditorCanvas: React.FC<{
         ctx.fillRect(tx, ty, 16, 16);
       }
 
-    // Calculate aspect-ratio-preserved bounds for half-sheet (width = sw/2, height = sh)
+    // Calculate aspect-ratio-preserved bounds for half-sheet
     let drawW = cw;
     let drawH = ch;
     let drawX = 0;
@@ -121,6 +120,23 @@ const EditorCanvas: React.FC<{
       }
 
       drawBoundsRef.current = { drawX, drawY, drawW, drawH };
+
+      // Apply zoom transformation around active box or canvas center
+      ctx.save();
+      if (zoomScale > 1.0) {
+        let focusX = cw / 2;
+        let focusY = ch / 2;
+        if (active) {
+          const curBox = state[active as keyof EditorState] as Box;
+          if (curBox) {
+            focusX = drawX + (curBox.x + curBox.width / 2) * drawW;
+            focusY = drawY + (curBox.y + curBox.height / 2) * drawH;
+          }
+        }
+        ctx.translate(focusX, focusY);
+        ctx.scale(zoomScale, zoomScale);
+        ctx.translate(-focusX, -focusY);
+      }
 
       if (mode === 'crop') {
         // Draw RIGHT HALF of sheet (Parts) un-stretched
@@ -208,83 +224,85 @@ const EditorCanvas: React.FC<{
           ctx.restore();
         }
       }
-    }
 
-    // Draw box overlays, borders, badges, and 8 handles for visible keys
-    for (const key of visibleKeys) {
-      if (!key) continue;
-      const box = state[key as keyof EditorState] as Box;
-      const isAct = active === key;
+      // Draw box overlays, borders, badges, and 8 handles for visible keys
+      for (const key of visibleKeys) {
+        if (!key) continue;
+        const box = state[key as keyof EditorState] as Box;
+        const isAct = active === key;
 
-      const bx = drawX + box.x * drawW;
-      const by = drawY + box.y * drawH;
-      const bw = box.width * drawW;
-      const bh = box.height * drawH;
-      const color = COLORS[key];
+        const bx = drawX + box.x * drawW;
+        const by = drawY + box.y * drawH;
+        const bw = box.width * drawW;
+        const bh = box.height * drawH;
+        const color = COLORS[key];
 
-      // Box inner fill
-      ctx.save();
-      ctx.globalAlpha = isAct ? 0.18 : 0.08;
-      ctx.fillStyle = color;
-      ctx.fillRect(bx, by, bw, bh);
-      ctx.restore();
-
-      // Border line
-      ctx.save();
-      ctx.strokeStyle = color;
-      ctx.lineWidth = isAct ? 2.5 : 1.5;
-      ctx.setLineDash(isAct ? [] : [5, 4]);
-      ctx.globalAlpha = isAct ? 1 : 0.6;
-      ctx.strokeRect(bx, by, bw, bh);
-      ctx.restore();
-
-      // Badge label
-      const label = LABELS[key];
-      ctx.save();
-      ctx.font = `bold ${isAct ? 12 : 10}px system-ui`;
-      const tw = ctx.measureText(label).width + 8;
-      ctx.fillStyle = color;
-      ctx.globalAlpha = 0.92;
-      ctx.fillRect(bx, Math.max(0, by - 18), tw, 17);
-      ctx.fillStyle = '#fff';
-      ctx.globalAlpha = 1;
-      ctx.fillText(label, bx + 4, Math.max(12, by - 5));
-      ctx.restore();
-
-      // 8 Handles for active box
-      if (isAct) {
+        // Box inner fill
         ctx.save();
-        ctx.fillStyle = '#ffffff';
-        ctx.strokeStyle = color;
-        ctx.lineWidth = 2;
-
-        const handles = [
-          { x: bx, y: by, type: 'corner' },
-          { x: bx + bw, y: by, type: 'corner' },
-          { x: bx, y: by + bh, type: 'corner' },
-          { x: bx + bw, y: by + bh, type: 'corner' },
-          { x: bx + bw / 2, y: by, type: 'edgeH' },
-          { x: bx + bw / 2, y: by + bh, type: 'edgeH' },
-          { x: bx, y: by + bh / 2, type: 'edgeV' },
-          { x: bx + bw, y: by + bh / 2, type: 'edgeV' },
-        ];
-
-        for (const h of handles) {
-          if (h.type === 'corner') {
-            ctx.fillRect(h.x - 5, h.y - 5, 10, 10);
-            ctx.strokeRect(h.x - 5, h.y - 5, 10, 10);
-          } else if (h.type === 'edgeH') {
-            ctx.fillRect(h.x - 14, h.y - 4, 28, 8);
-            ctx.strokeRect(h.x - 14, h.y - 4, 28, 8);
-          } else if (h.type === 'edgeV') {
-            ctx.fillRect(h.x - 4, h.y - 14, 8, 28);
-            ctx.strokeRect(h.x - 4, h.y - 14, 8, 28);
-          }
-        }
+        ctx.globalAlpha = isAct ? 0.18 : 0.08;
+        ctx.fillStyle = color;
+        ctx.fillRect(bx, by, bw, bh);
         ctx.restore();
+
+        // Border line
+        ctx.save();
+        ctx.strokeStyle = color;
+        ctx.lineWidth = isAct ? 2.5 : 1.5;
+        ctx.setLineDash(isAct ? [] : [5, 4]);
+        ctx.globalAlpha = isAct ? 1 : 0.6;
+        ctx.strokeRect(bx, by, bw, bh);
+        ctx.restore();
+
+        // Badge label
+        const label = LABELS[key];
+        ctx.save();
+        ctx.font = `bold ${isAct ? 12 : 10}px system-ui`;
+        const tw = ctx.measureText(label).width + 8;
+        ctx.fillStyle = color;
+        ctx.globalAlpha = 0.92;
+        ctx.fillRect(bx, Math.max(0, by - 18), tw, 17);
+        ctx.fillStyle = '#fff';
+        ctx.globalAlpha = 1;
+        ctx.fillText(label, bx + 4, Math.max(12, by - 5));
+        ctx.restore();
+
+        // 8 Handles for active box
+        if (isAct) {
+          ctx.save();
+          ctx.fillStyle = '#ffffff';
+          ctx.strokeStyle = color;
+          ctx.lineWidth = 2;
+
+          const handles = [
+            { x: bx, y: by, type: 'corner' },
+            { x: bx + bw, y: by, type: 'corner' },
+            { x: bx, y: by + bh, type: 'corner' },
+            { x: bx + bw, y: by + bh, type: 'corner' },
+            { x: bx + bw / 2, y: by, type: 'edgeH' },
+            { x: bx + bw / 2, y: by + bh, type: 'edgeH' },
+            { x: bx, y: by + bh / 2, type: 'edgeV' },
+            { x: bx + bw, y: by + bh / 2, type: 'edgeV' },
+          ];
+
+          for (const h of handles) {
+            if (h.type === 'corner') {
+              ctx.fillRect(h.x - 5, h.y - 5, 10, 10);
+              ctx.strokeRect(h.x - 5, h.y - 5, 10, 10);
+            } else if (h.type === 'edgeH') {
+              ctx.fillRect(h.x - 14, h.y - 4, 28, 8);
+              ctx.strokeRect(h.x - 14, h.y - 4, 28, 8);
+            } else if (h.type === 'edgeV') {
+              ctx.fillRect(h.x - 4, h.y - 14, 8, 28);
+              ctx.strokeRect(h.x - 4, h.y - 14, 8, 28);
+            }
+          }
+          ctx.restore();
+        }
       }
+
+      ctx.restore(); // Restore zoom transform
     }
-  }, [state, active, mode, sheetImg, baseImg, removeWhiteBg, whiteThreshold, visibleKeys]);
+  }, [state, active, mode, sheetImg, baseImg, removeWhiteBg, whiteThreshold, zoomScale, visibleKeys]);
 
   useEffect(() => { draw(); }, [draw]);
 
@@ -292,10 +310,32 @@ const EditorCanvas: React.FC<{
     const c = canvasRef.current!;
     const r = c.getBoundingClientRect();
     const sx = c.width / r.width, sy = c.height / r.height;
+    let cx = 0, cy = 0;
     if ('touches' in e) {
-      return { cx: (e.touches[0].clientX - r.left)*sx, cy: (e.touches[0].clientY - r.top)*sy };
+      cx = (e.touches[0].clientX - r.left) * sx;
+      cy = (e.touches[0].clientY - r.top) * sy;
+    } else {
+      cx = (e.clientX - r.left) * sx;
+      cy = (e.clientY - r.top) * sy;
     }
-    return { cx: (e.clientX - r.left)*sx, cy: (e.clientY - r.top)*sy };
+
+    // Inverse transform for zoom Scale
+    if (zoomScale > 1.0) {
+      const { drawX, drawY, drawW, drawH } = drawBoundsRef.current;
+      let focusX = c.width / 2;
+      let focusY = c.height / 2;
+      if (active) {
+        const curBox = state[active as keyof EditorState] as Box;
+        if (curBox) {
+          focusX = drawX + (curBox.x + curBox.width / 2) * drawW;
+          focusY = drawY + (curBox.y + curBox.height / 2) * drawH;
+        }
+      }
+      cx = focusX + (cx - focusX) / zoomScale;
+      cy = focusY + (cy - focusY) / zoomScale;
+    }
+
+    return { cx, cy };
   };
 
   const hitTest = (cx: number, cy: number): { key: NonNullable<ActiveKey>; handle: DragHandle } => {
@@ -466,10 +506,10 @@ export const PartPlacementEditor: React.FC = () => {
   const navigate = useNavigate();
 
   const [mode, setMode] = useState<'crop' | 'place'>('crop');
-  // Initial active key is null in crop mode so no grid boxes clutter the image at start!
   const [active, setActive] = useState<ActiveKey>(null);
   const [state, setState] = useState<EditorState>(DEFAULT_STATE);
   const [fullscreen, setFullscreen] = useState(true);
+  const [zoomScale, setZoomScale] = useState<number>(1.0);
 
   const sheetImgRef = useRef<HTMLImageElement | null>(null);
   const baseImgRef  = useRef<HTMLImageElement | null>(null);
@@ -572,8 +612,6 @@ export const PartPlacementEditor: React.FC = () => {
 
   const switchMode = (m: 'crop' | 'place') => {
     setMode(m);
-    // In crop mode: no active part at start until tapped
-    // In place mode: default to eyesPlace
     setActive(m === 'crop' ? null : 'eyesPlace');
   };
 
@@ -591,6 +629,7 @@ export const PartPlacementEditor: React.FC = () => {
     baseImg: baseImgRef.current,
     removeWhiteBg,
     whiteThreshold,
+    zoomScale,
   };
 
   const curBox = active ? (state[active as keyof EditorState] as Box) : null;
@@ -653,7 +692,7 @@ export const PartPlacementEditor: React.FC = () => {
         touchAction: 'none',
       }}>
 
-        {/* ── ROW 1: Mode tabs + confirm/close + Transparency ── */}
+        {/* ── ROW 1: Mode tabs + Zoom slider + Transparency + Confirm/Close ── */}
         <div style={{
           display: 'flex', alignItems: 'center', gap: '0.4rem',
           padding: '0.4rem 0.6rem',
@@ -678,6 +717,31 @@ export const PartPlacementEditor: React.FC = () => {
             display: 'flex', alignItems: 'center', gap: '0.25rem',
           }}><MapPin size={14}/> 2. 貼り付け</button>
 
+          {/* Integrated Zoom Slider */}
+          <div style={{
+            display: 'flex', alignItems: 'center', gap: '0.4rem',
+            background: 'rgba(0,0,0,0.35)', padding: '0.25rem 0.5rem',
+            borderRadius: '8px', border: '1px solid rgba(255,255,255,0.1)',
+          }}>
+            <ZoomIn size={13} color="#60a5fa" />
+            <span style={{ fontSize: '0.72rem', color: '#cbd5e1', fontWeight: 600 }}>拡大: {zoomScale.toFixed(1)}x</span>
+            <input
+              type="range"
+              min="1.0"
+              max="3.0"
+              step="0.1"
+              value={zoomScale}
+              onChange={(e) => setZoomScale(Number(e.target.value))}
+              style={{ width: '65px', accentColor: '#3b82f6', cursor: 'pointer' }}
+            />
+            {zoomScale > 1.0 && (
+              <button onClick={() => setZoomScale(1.0)} style={{
+                background: 'rgba(255,255,255,0.1)', border: 'none', color: '#cbd5e1',
+                borderRadius: '4px', fontSize: '0.65rem', padding: '0.1rem 0.35rem', cursor: 'pointer',
+              }}>1.0x</button>
+            )}
+          </div>
+
           {/* Integrated Transparency Slider */}
           <div style={{
             display: 'flex', alignItems: 'center', gap: '0.4rem',
@@ -693,7 +757,7 @@ export const PartPlacementEditor: React.FC = () => {
               step="1"
               value={whiteThreshold}
               onChange={(e) => setWhiteThreshold(Number(e.target.value))}
-              style={{ width: '70px', accentColor: '#a855f7', cursor: 'pointer' }}
+              style={{ width: '65px', accentColor: '#a855f7', cursor: 'pointer' }}
             />
             <label style={{ fontSize: '0.72rem', color: '#e2e8f0', display: 'flex', alignItems: 'center', gap: '0.2rem', cursor: 'pointer' }}>
               <input
