@@ -183,36 +183,43 @@ const EditorCanvas: React.FC<{
     return { cx: (e.clientX - r.left)*sx, cy: (e.clientY - r.top)*sy };
   };
 
-  const hitTest = (cx: number, cy: number): { key: ActiveKey; handle: DragHandle } | null => {
+  const hitTest = (cx: number, cy: number): { key: ActiveKey; handle: DragHandle } => {
     const cw = canvasRef.current!.width, ch = canvasRef.current!.height;
+
+    // 1. Check resize handles on the current active box first
+    const activeBox = state[active as keyof EditorState] as Box;
+    if (activeBox) {
+      const abx = activeBox.x * cw, aby = activeBox.y * ch, abw = activeBox.width * cw, abh = activeBox.height * ch;
+      const tol = 24; // Generous touch tolerance for handles
+
+      if (Math.abs(cy - aby) <= tol && cx >= abx + 10 && cx <= abx + abw - 10) return { key: active, handle: 'n' };
+      if (Math.abs(cy - (aby + abh)) <= tol && cx >= abx + 10 && cx <= abx + abw - 10) return { key: active, handle: 's' };
+      if (Math.abs(cx - abx) <= tol && cy >= aby + 10 && cy <= aby + abh - 10) return { key: active, handle: 'w' };
+      if (Math.abs(cx - (abx + abw)) <= tol && cy >= aby + 10 && cy <= aby + abh - 10) return { key: active, handle: 'e' };
+
+      if (Math.abs(cx - abx) <= tol && Math.abs(cy - aby) <= tol) return { key: active, handle: 'nw' };
+      if (Math.abs(cx - (abx + abw)) <= tol && Math.abs(cy - aby) <= tol) return { key: active, handle: 'ne' };
+      if (Math.abs(cx - abx) <= tol && Math.abs(cy - (aby + abh)) <= tol) return { key: active, handle: 'sw' };
+      if (Math.abs(cx - (abx + abw)) <= tol && Math.abs(cy - (aby + abh)) <= tol) return { key: active, handle: 'se' };
+    }
+
+    // 2. Check if touching inside another visible box -> switch to it
     for (const key of [...visibleKeys].reverse()) {
+      if (key === active) continue;
       const box = state[key as keyof EditorState] as Box;
       const bx = box.x * cw, by = box.y * ch, bw = box.width * cw, bh = box.height * ch;
-
-      if (active === key) {
-        const tol = 16;
-        if (Math.abs(cy - by) <= tol && cx >= bx + 14 && cx <= bx + bw - 14) return { key, handle: 'n' };
-        if (Math.abs(cy - (by + bh)) <= tol && cx >= bx + 14 && cx <= bx + bw - 14) return { key, handle: 's' };
-        if (Math.abs(cx - bx) <= tol && cy >= by + 14 && cy <= by + bh - 14) return { key, handle: 'w' };
-        if (Math.abs(cx - (bx + bw)) <= tol && cy >= by + 14 && cy <= by + bh - 14) return { key, handle: 'e' };
-
-        if (Math.abs(cx - bx) <= tol && Math.abs(cy - by) <= tol) return { key, handle: 'nw' };
-        if (Math.abs(cx - (bx + bw)) <= tol && Math.abs(cy - by) <= tol) return { key, handle: 'ne' };
-        if (Math.abs(cx - bx) <= tol && Math.abs(cy - (by + bh)) <= tol) return { key, handle: 'sw' };
-        if (Math.abs(cx - (bx + bw)) <= tol && Math.abs(cy - (by + bh)) <= tol) return { key, handle: 'se' };
-      }
-
       if (cx >= bx && cx <= bx + bw && cy >= by && cy <= by + bh) {
         return { key, handle: 'move' };
       }
     }
-    return null;
+
+    // 3. Touching anywhere else on the canvas -> move the selected active part box!
+    return { key: active, handle: 'move' };
   };
 
   const onDown = (e: React.MouseEvent<HTMLCanvasElement>) => {
     const {cx,cy} = getCoords(e);
     const hit = hitTest(cx, cy);
-    if (!hit) return;
     setActive(hit.key);
     dragRef.current = { key: hit.key, handle: hit.handle, startMX: cx, startMY: cy,
       startBox: { ...(state[hit.key as keyof EditorState] as Box) } };
