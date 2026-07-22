@@ -7,7 +7,7 @@ interface Box { x: number; y: number; width: number; height: number; }
 
 type CropKey = 'eyesOpenCrop' | 'eyesClosedCrop' | 'mouthOpenCrop' | 'mouthClosedCrop';
 type PlaceKey = 'eyesPlace' | 'mouthPlace';
-type ActiveKey = CropKey | PlaceKey;
+type ActiveKey = CropKey | PlaceKey | null;
 
 type DragHandle = 'move' | 'n' | 's' | 'w' | 'e' | 'nw' | 'ne' | 'sw' | 'se';
 
@@ -68,12 +68,14 @@ const EditorCanvas: React.FC<{
   });
 
   const dragRef = useRef<{
-    key: ActiveKey; handle: DragHandle;
+    key: NonNullable<ActiveKey>; handle: DragHandle;
     startMX: number; startMY: number; startBox: Box;
   } | null>(null);
 
+  // In crop mode: only render active crop box if selected (clean sheet by default)
+  // In place mode: render placement boxes
   const visibleKeys: ActiveKey[] = mode === 'crop'
-    ? ['eyesOpenCrop', 'eyesClosedCrop', 'mouthOpenCrop', 'mouthClosedCrop']
+    ? (active ? [active] : [])
     : ['eyesPlace', 'mouthPlace'];
 
   const draw = useCallback(() => {
@@ -103,17 +105,15 @@ const EditorCanvas: React.FC<{
       const sh = sheetImg.naturalHeight || sheetImg.height;
       const sourceW = sw / 2;
       const sourceH = sh;
-      const sourceAspect = sourceW / sourceH; // e.g. 960/1080 = 0.8888
+      const sourceAspect = sourceW / sourceH;
       const canvasAspect = cw / ch;
 
       if (canvasAspect > sourceAspect) {
-        // Canvas is wider -> pillarbox left and right
         drawH = ch;
         drawW = ch * sourceAspect;
         drawX = (cw - drawW) / 2;
         drawY = 0;
       } else {
-        // Canvas is taller -> letterbox top and bottom
         drawW = cw;
         drawH = cw / sourceAspect;
         drawX = 0;
@@ -210,8 +210,9 @@ const EditorCanvas: React.FC<{
       }
     }
 
-    // Draw box overlays, borders, badges, and 8 handles
+    // Draw box overlays, borders, badges, and 8 handles for visible keys
     for (const key of visibleKeys) {
+      if (!key) continue;
       const box = state[key as keyof EditorState] as Box;
       const isAct = active === key;
 
@@ -297,44 +298,59 @@ const EditorCanvas: React.FC<{
     return { cx: (e.clientX - r.left)*sx, cy: (e.clientY - r.top)*sy };
   };
 
-  const hitTest = (cx: number, cy: number): { key: ActiveKey; handle: DragHandle } => {
+  const hitTest = (cx: number, cy: number): { key: NonNullable<ActiveKey>; handle: DragHandle } => {
     const { drawX, drawY, drawW, drawH } = drawBoundsRef.current;
 
-    // 1. Check resize handles on active box
-    const activeBox = state[active as keyof EditorState] as Box;
-    if (activeBox) {
-      const abx = drawX + activeBox.x * drawW;
-      const aby = drawY + activeBox.y * drawH;
-      const abw = activeBox.width * drawW;
-      const abh = activeBox.height * drawH;
-      const tol = 24;
+    // 1. Check handles on current active box
+    if (active) {
+      const activeBox = state[active as keyof EditorState] as Box;
+      if (activeBox) {
+        const abx = drawX + activeBox.x * drawW;
+        const aby = drawY + activeBox.y * drawH;
+        const abw = activeBox.width * drawW;
+        const abh = activeBox.height * drawH;
+        const tol = 24;
 
-      if (Math.abs(cy - aby) <= tol && cx >= abx + 10 && cx <= abx + abw - 10) return { key: active, handle: 'n' };
-      if (Math.abs(cy - (aby + abh)) <= tol && cx >= abx + 10 && cx <= abx + abw - 10) return { key: active, handle: 's' };
-      if (Math.abs(cx - abx) <= tol && cy >= aby + 10 && cy <= aby + abh - 10) return { key: active, handle: 'w' };
-      if (Math.abs(cx - (abx + abw)) <= tol && cy >= aby + 10 && cy <= aby + abh - 10) return { key: active, handle: 'e' };
+        if (Math.abs(cy - aby) <= tol && cx >= abx + 10 && cx <= abx + abw - 10) return { key: active, handle: 'n' };
+        if (Math.abs(cy - (aby + abh)) <= tol && cx >= abx + 10 && cx <= abx + abw - 10) return { key: active, handle: 's' };
+        if (Math.abs(cx - abx) <= tol && cy >= aby + 10 && cy <= aby + abh - 10) return { key: active, handle: 'w' };
+        if (Math.abs(cx - (abx + abw)) <= tol && cy >= aby + 10 && cy <= aby + abh - 10) return { key: active, handle: 'e' };
 
-      if (Math.abs(cx - abx) <= tol && Math.abs(cy - aby) <= tol) return { key: active, handle: 'nw' };
-      if (Math.abs(cx - (abx + abw)) <= tol && Math.abs(cy - aby) <= tol) return { key: active, handle: 'ne' };
-      if (Math.abs(cx - abx) <= tol && Math.abs(cy - (aby + abh)) <= tol) return { key: active, handle: 'sw' };
-      if (Math.abs(cx - (abx + abw)) <= tol && Math.abs(cy - (aby + abh)) <= tol) return { key: active, handle: 'se' };
+        if (Math.abs(cx - abx) <= tol && Math.abs(cy - aby) <= tol) return { key: active, handle: 'nw' };
+        if (Math.abs(cx - (abx + abw)) <= tol && Math.abs(cy - aby) <= tol) return { key: active, handle: 'ne' };
+        if (Math.abs(cx - abx) <= tol && Math.abs(cy - (aby + abh)) <= tol) return { key: active, handle: 'sw' };
+        if (Math.abs(cx - (abx + abw)) <= tol && Math.abs(cy - (aby + abh)) <= tol) return { key: active, handle: 'se' };
+      }
     }
 
     // 2. Check if touching inside another visible box
     for (const key of [...visibleKeys].reverse()) {
-      if (key === active) continue;
+      if (!key || key === active) continue;
       const box = state[key as keyof EditorState] as Box;
       const bx = drawX + box.x * drawW;
       const by = drawY + box.y * drawH;
       const bw = box.width * drawW;
       const bh = box.height * drawH;
       if (cx >= bx && cx <= bx + bw && cy >= by && cy <= by + bh) {
-        return { key, handle: 'move' };
+        return { key: key as NonNullable<ActiveKey>, handle: 'move' };
       }
     }
 
-    // 3. Touch anywhere else -> move current active box
-    return { key: active, handle: 'move' };
+    // 3. In crop mode when active is null: detect quadrant tap to select part
+    if (mode === 'crop') {
+      const relX = (cx - drawX) / drawW;
+      const relY = (cy - drawY) / drawH;
+      let targetKey: CropKey = 'eyesOpenCrop';
+      if (relX < 0.5 && relY < 0.5) targetKey = 'eyesOpenCrop';
+      else if (relX >= 0.5 && relY < 0.5) targetKey = 'eyesClosedCrop';
+      else if (relX < 0.5 && relY >= 0.5) targetKey = 'mouthOpenCrop';
+      else targetKey = 'mouthClosedCrop';
+
+      return { key: targetKey, handle: 'move' };
+    }
+
+    const defaultKey = active || 'eyesPlace';
+    return { key: defaultKey as NonNullable<ActiveKey>, handle: 'move' };
   };
 
   const onDown = (e: React.MouseEvent<HTMLCanvasElement>) => {
@@ -450,7 +466,8 @@ export const PartPlacementEditor: React.FC = () => {
   const navigate = useNavigate();
 
   const [mode, setMode] = useState<'crop' | 'place'>('crop');
-  const [active, setActive] = useState<ActiveKey>('eyesOpenCrop');
+  // Initial active key is null in crop mode so no grid boxes clutter the image at start!
+  const [active, setActive] = useState<ActiveKey>(null);
   const [state, setState] = useState<EditorState>(DEFAULT_STATE);
   const [fullscreen, setFullscreen] = useState(true);
 
@@ -555,14 +572,18 @@ export const PartPlacementEditor: React.FC = () => {
 
   const switchMode = (m: 'crop' | 'place') => {
     setMode(m);
-    setActive(m === 'crop' ? 'eyesOpenCrop' : 'eyesPlace');
+    // In crop mode: no active part at start until tapped
+    // In place mode: default to eyesPlace
+    setActive(m === 'crop' ? null : 'eyesPlace');
   };
 
   if (!parsedAssetSheetParts) return null;
 
   const visibleKeys: ActiveKey[] = mode === 'crop'
-    ? ['eyesOpenCrop', 'eyesClosedCrop', 'mouthOpenCrop', 'mouthClosedCrop']
+    ? (active ? [active] : [])
     : ['eyesPlace', 'mouthPlace'];
+
+  const cropButtons: CropKey[] = ['eyesOpenCrop', 'eyesClosedCrop', 'mouthOpenCrop', 'mouthClosedCrop'];
 
   const canvasProps = {
     state, setState, mode, active, setActive,
@@ -572,9 +593,10 @@ export const PartPlacementEditor: React.FC = () => {
     whiteThreshold,
   };
 
-  const curBox = state[active as keyof EditorState] as Box;
+  const curBox = active ? (state[active as keyof EditorState] as Box) : null;
 
   const setSymmetricWidth = (newW: number) => {
+    if (!active) return;
     setState(prev => {
       const b = prev[active as keyof EditorState] as Box;
       const centerX = b.x + b.width / 2;
@@ -584,6 +606,7 @@ export const PartPlacementEditor: React.FC = () => {
   };
 
   const setSymmetricHeight = (newH: number) => {
+    if (!active) return;
     setState(prev => {
       const b = prev[active as keyof EditorState] as Box;
       const centerY = b.y + b.height / 2;
@@ -593,6 +616,7 @@ export const PartPlacementEditor: React.FC = () => {
   };
 
   const setCenterX = (newCX: number) => {
+    if (!active) return;
     setState(prev => {
       const b = prev[active as keyof EditorState] as Box;
       const newX = Math.max(0, Math.min(1 - b.width, newCX - b.width / 2));
@@ -601,6 +625,7 @@ export const PartPlacementEditor: React.FC = () => {
   };
 
   const setCenterY = (newCY: number) => {
+    if (!active) return;
     setState(prev => {
       const b = prev[active as keyof EditorState] as Box;
       const newY = Math.max(0, Math.min(1 - b.height, newCY - b.height / 2));
@@ -608,8 +633,8 @@ export const PartPlacementEditor: React.FC = () => {
     });
   };
 
-  const curCenterX = (curBox.x + curBox.width / 2);
-  const curCenterY = (curBox.y + curBox.height / 2);
+  const curCenterX = curBox ? (curBox.x + curBox.width / 2) : 0.5;
+  const curCenterY = curBox ? (curBox.y + curBox.height / 2) : 0.5;
 
   // ─ FULLSCREEN OVERLAY ─
   if (fullscreen) {
@@ -710,15 +735,27 @@ export const PartPlacementEditor: React.FC = () => {
           flexShrink: 0,
           overflowX: 'auto',
         }}>
-          {(visibleKeys as ActiveKey[]).map(key => (
-            <button key={key} onClick={() => setActive(key)} style={{
-              padding: '0.2rem 0.65rem', borderRadius: '10px', fontSize: '0.75rem',
-              border: `2px solid ${active===key ? COLORS[key] : 'rgba(255,255,255,0.1)'}`,
-              background: active===key ? `${COLORS[key]}30` : 'transparent',
-              color: active===key ? '#fff' : '#94a3b8', cursor: 'pointer', fontWeight: active===key?700:400,
-              whiteSpace: 'nowrap',
-            }}>{LABELS[key]}</button>
-          ))}
+          {mode === 'crop' ? (
+            cropButtons.map(key => (
+              <button key={key} onClick={() => setActive(key)} style={{
+                padding: '0.2rem 0.65rem', borderRadius: '10px', fontSize: '0.75rem',
+                border: `2px solid ${active===key ? COLORS[key] : 'rgba(255,255,255,0.1)'}`,
+                background: active===key ? `${COLORS[key]}30` : 'transparent',
+                color: active===key ? '#fff' : '#94a3b8', cursor: 'pointer', fontWeight: active===key?700:400,
+                whiteSpace: 'nowrap',
+              }}>{LABELS[key]}</button>
+            ))
+          ) : (
+            (['eyesPlace', 'mouthPlace'] as PlaceKey[]).map(key => (
+              <button key={key} onClick={() => setActive(key)} style={{
+                padding: '0.2rem 0.65rem', borderRadius: '10px', fontSize: '0.75rem',
+                border: `2px solid ${active===key ? COLORS[key] : 'rgba(255,255,255,0.1)'}`,
+                background: active===key ? `${COLORS[key]}30` : 'transparent',
+                color: active===key ? '#fff' : '#94a3b8', cursor: 'pointer', fontWeight: active===key?700:400,
+                whiteSpace: 'nowrap',
+              }}>{LABELS[key]}</button>
+            ))
+          )}
         </div>
 
         {/* ── Canvas area ── */}
@@ -739,64 +776,69 @@ export const PartPlacementEditor: React.FC = () => {
           background: 'rgba(15,23,42,0.98)',
           borderTop: '1px solid rgba(255,255,255,0.15)',
           padding: '0.5rem 0.75rem calc(0.75rem + env(safe-area-inset-bottom, 16px)) 0.75rem',
-          display: 'grid',
-          gridTemplateColumns: '1fr 1fr',
-          gap: '0.35rem 0.8rem',
           flexShrink: 0,
           zIndex: 10000,
           boxShadow: '0 -4px 20px rgba(0,0,0,0.5)',
         }}>
-          {/* 横幅（左右狭まる） */}
-          <label style={{ display:'flex', flexDirection:'column', gap:'0.08rem' }}>
-            <span style={{ fontSize:'0.7rem', color: COLORS[active], fontWeight: 600 }}>
-              ↔ 横幅 (左右から伸縮): {(curBox.width * 100).toFixed(1)}%
-            </span>
-            <input type="range"
-              min="0.02" max="0.95" step="0.005"
-              value={curBox.width}
-              onChange={e => setSymmetricWidth(Number(e.target.value))}
-              style={{ accentColor: COLORS[active], cursor:'pointer', width: '100%' }}
-            />
-          </label>
+          {active && curBox ? (
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.35rem 0.8rem' }}>
+              {/* 横幅（左右狭まる） */}
+              <label style={{ display:'flex', flexDirection:'column', gap:'0.08rem' }}>
+                <span style={{ fontSize:'0.7rem', color: COLORS[active], fontWeight: 600 }}>
+                  ↔ 横幅 (左右から伸縮): {(curBox.width * 100).toFixed(1)}%
+                </span>
+                <input type="range"
+                  min="0.02" max="0.95" step="0.005"
+                  value={curBox.width}
+                  onChange={e => setSymmetricWidth(Number(e.target.value))}
+                  style={{ accentColor: COLORS[active], cursor:'pointer', width: '100%' }}
+                />
+              </label>
 
-          {/* 縦幅（上下狭まる） */}
-          <label style={{ display:'flex', flexDirection:'column', gap:'0.08rem' }}>
-            <span style={{ fontSize:'0.7rem', color: COLORS[active], fontWeight: 600 }}>
-              ↕ 縦幅 (上下から伸縮): {(curBox.height * 100).toFixed(1)}%
-            </span>
-            <input type="range"
-              min="0.02" max="0.95" step="0.005"
-              value={curBox.height}
-              onChange={e => setSymmetricHeight(Number(e.target.value))}
-              style={{ accentColor: COLORS[active], cursor:'pointer', width: '100%' }}
-            />
-          </label>
+              {/* 縦幅（上下狭まる） */}
+              <label style={{ display:'flex', flexDirection:'column', gap:'0.08rem' }}>
+                <span style={{ fontSize:'0.7rem', color: COLORS[active], fontWeight: 600 }}>
+                  ↕ 縦幅 (上下から伸縮): {(curBox.height * 100).toFixed(1)}%
+                </span>
+                <input type="range"
+                  min="0.02" max="0.95" step="0.005"
+                  value={curBox.height}
+                  onChange={e => setSymmetricHeight(Number(e.target.value))}
+                  style={{ accentColor: COLORS[active], cursor:'pointer', width: '100%' }}
+                />
+              </label>
 
-          {/* X位置 */}
-          <label style={{ display:'flex', flexDirection:'column', gap:'0.08rem' }}>
-            <span style={{ fontSize:'0.7rem', color: '#94a3b8' }}>
-              X位置 (中心): {(curCenterX * 100).toFixed(1)}%
-            </span>
-            <input type="range"
-              min="0" max="1" step="0.005"
-              value={curCenterX}
-              onChange={e => setCenterX(Number(e.target.value))}
-              style={{ accentColor: COLORS[active], cursor:'pointer', width: '100%' }}
-            />
-          </label>
+              {/* X位置 */}
+              <label style={{ display:'flex', flexDirection:'column', gap:'0.08rem' }}>
+                <span style={{ fontSize:'0.7rem', color: '#94a3b8' }}>
+                  X位置 (中心): {(curCenterX * 100).toFixed(1)}%
+                </span>
+                <input type="range"
+                  min="0" max="1" step="0.005"
+                  value={curCenterX}
+                  onChange={e => setCenterX(Number(e.target.value))}
+                  style={{ accentColor: COLORS[active], cursor:'pointer', width: '100%' }}
+                />
+              </label>
 
-          {/* Y位置 */}
-          <label style={{ display:'flex', flexDirection:'column', gap:'0.08rem' }}>
-            <span style={{ fontSize:'0.7rem', color: '#94a3b8' }}>
-              Y位置 (中心): {(curCenterY * 100).toFixed(1)}%
-            </span>
-            <input type="range"
-              min="0" max="1" step="0.005"
-              value={curCenterY}
-              onChange={e => setCenterY(Number(e.target.value))}
-              style={{ accentColor: COLORS[active], cursor:'pointer', width: '100%' }}
-            />
-          </label>
+              {/* Y位置 */}
+              <label style={{ display:'flex', flexDirection:'column', gap:'0.08rem' }}>
+                <span style={{ fontSize:'0.7rem', color: '#94a3b8' }}>
+                  Y位置 (中心): {(curCenterY * 100).toFixed(1)}%
+                </span>
+                <input type="range"
+                  min="0" max="1" step="0.005"
+                  value={curCenterY}
+                  onChange={e => setCenterY(Number(e.target.value))}
+                  style={{ accentColor: COLORS[active], cursor:'pointer', width: '100%' }}
+                />
+              </label>
+            </div>
+          ) : (
+            <div style={{ textAlign: 'center', color: '#94a3b8', fontSize: '0.8rem', padding: '0.2rem' }}>
+              👆 上のパーツボタン（✂ 開眼 など）または画像上のパーツ領域をタップして指定を始めてください
+            </div>
+          )}
         </div>
       </div>
     );
