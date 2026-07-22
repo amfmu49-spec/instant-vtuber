@@ -372,7 +372,11 @@ export const autotrimCanvas = (
   // 口の中の白い歯や目のハイライトなど、内部の白要素は100%保護される
   if (removeWhite) {
     const visited = new Uint8Array(w * h);
-    const queue: number[] = [];
+    // Use pre-allocated TypedArrays for insane performance (zero GC pauses)
+    const queueX = new Uint16Array(w * h);
+    const queueY = new Uint16Array(w * h);
+    let qHead = 0;
+    let qTail = 0;
 
     const isBackgroundWhite = (idx: number) => {
       return data[idx] >= threshold && data[idx + 1] >= threshold && data[idx + 2] >= threshold;
@@ -382,41 +386,52 @@ export const autotrimCanvas = (
     for (let x = 0; x < w; x++) {
       const topIdx = (0 * w + x) * 4;
       const botIdx = ((h - 1) * w + x) * 4;
-      if (isBackgroundWhite(topIdx)) { queue.push(x, 0); visited[0 * w + x] = 1; }
-      if (isBackgroundWhite(botIdx)) { queue.push(x, h - 1); visited[(h - 1) * w + x] = 1; }
+      if (isBackgroundWhite(topIdx)) { queueX[qTail] = x; queueY[qTail] = 0; qTail++; visited[0 * w + x] = 1; }
+      if (isBackgroundWhite(botIdx)) { queueX[qTail] = x; queueY[qTail] = h - 1; qTail++; visited[(h - 1) * w + x] = 1; }
     }
     for (let y = 0; y < h; y++) {
       const leftIdx = (y * w + 0) * 4;
       const rightIdx = (y * w + (w - 1)) * 4;
-      if (!visited[y * w + 0] && isBackgroundWhite(leftIdx)) { queue.push(0, y); visited[y * w + 0] = 1; }
-      if (!visited[y * w + (w - 1)] && isBackgroundWhite(rightIdx)) { queue.push(w - 1, y); visited[y * w + (w - 1)] = 1; }
+      if (!visited[y * w + 0] && isBackgroundWhite(leftIdx)) { queueX[qTail] = 0; queueY[qTail] = y; qTail++; visited[y * w + 0] = 1; }
+      if (!visited[y * w + (w - 1)] && isBackgroundWhite(rightIdx)) { queueX[qTail] = w - 1; queueY[qTail] = y; qTail++; visited[y * w + (w - 1)] = 1; }
     }
 
     // BFS フラッドフィル探査
-    let qHead = 0;
-    while (qHead < queue.length) {
-      const cx = queue[qHead++];
-      const cy = queue[qHead++];
+    while (qHead < qTail) {
+      const cx = queueX[qHead];
+      const cy = queueY[qHead];
+      qHead++;
       const pIdx = (cy * w + cx) * 4;
 
       data[pIdx + 3] = 0; // 外枠接続背景を透明化
 
-      // 4近傍探査
-      const neighbors = [
-        [cx + 1, cy], [cx - 1, cy], [cx, cy + 1], [cx, cy - 1]
-      ];
-      for (let i = 0; i < 4; i++) {
-        const nx = neighbors[i][0];
-        const ny = neighbors[i][1];
-        if (nx >= 0 && nx < w && ny >= 0 && ny < h) {
-          const nPos = ny * w + nx;
-          if (!visited[nPos]) {
-            visited[nPos] = 1;
-            const nIdx = nPos * 4;
-            if (isBackgroundWhite(nIdx)) {
-              queue.push(nx, ny);
-            }
-          }
+      // 4近傍探査 (inline for maximum performance)
+      if (cx + 1 < w) {
+        const nPos = cy * w + (cx + 1);
+        if (!visited[nPos]) {
+          visited[nPos] = 1;
+          if (isBackgroundWhite(nPos * 4)) { queueX[qTail] = cx + 1; queueY[qTail] = cy; qTail++; }
+        }
+      }
+      if (cx - 1 >= 0) {
+        const nPos = cy * w + (cx - 1);
+        if (!visited[nPos]) {
+          visited[nPos] = 1;
+          if (isBackgroundWhite(nPos * 4)) { queueX[qTail] = cx - 1; queueY[qTail] = cy; qTail++; }
+        }
+      }
+      if (cy + 1 < h) {
+        const nPos = (cy + 1) * w + cx;
+        if (!visited[nPos]) {
+          visited[nPos] = 1;
+          if (isBackgroundWhite(nPos * 4)) { queueX[qTail] = cx; queueY[qTail] = cy + 1; qTail++; }
+        }
+      }
+      if (cy - 1 >= 0) {
+        const nPos = (cy - 1) * w + cx;
+        if (!visited[nPos]) {
+          visited[nPos] = 1;
+          if (isBackgroundWhite(nPos * 4)) { queueX[qTail] = cx; queueY[qTail] = cy - 1; qTail++; }
         }
       }
     }
