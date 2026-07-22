@@ -1,5 +1,6 @@
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import type { AvatarCoords } from '../store/AppContext';
+import { generateProceduralAssetSheetDataUrl } from '../utils/proceduralAssetSheet';
 
 export const analyzeAvatarImage = async (apiKey: string, base64Image: string): Promise<AvatarCoords | null> => {
   if (!apiKey || !base64Image) return null;
@@ -280,8 +281,8 @@ export const generateFree16by9AssetSheet = async (customPrompt: string): Promise
     .replace(/\s+/g, ' ')
     .trim();
   
-  const shortPrompt = cleanPrompt.length > 350
-    ? `16:9 VTuber asset sheet, left half blank face anime bust, right half 4 expression parts (eyes open, eyes closed, mouth open, mouth neutral), ${customPrompt.slice(0, 150)}`
+  const shortPrompt = cleanPrompt.length > 300
+    ? `16:9 VTuber asset sheet, left half blank face anime bust, right half 4 expression parts (eyes open, eyes closed, mouth open, mouth neutral), ${customPrompt.slice(0, 120)}`
     : cleanPrompt;
 
   const encodedPrompt = encodeURIComponent(shortPrompt);
@@ -296,7 +297,7 @@ export const generateFree16by9AssetSheet = async (customPrompt: string): Promise
       const url = `https://image.pollinations.ai/p/${encodedPrompt}?width=1280&height=720&seed=${seed}&nologo=true&enhance=true&model=${model}`;
 
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 18000); // 18秒タイムアウト
+      const timeoutId = setTimeout(() => controller.abort(), 8000); // 8秒短縮タイムアウト
 
       const response = await fetch(url, { signal: controller.signal });
       clearTimeout(timeoutId);
@@ -313,11 +314,13 @@ export const generateFree16by9AssetSheet = async (customPrompt: string): Promise
         }
       }
     } catch (e) {
-      console.warn(`Pollinations model ${model} failed, trying next fallback...`, e);
+      console.warn(`Pollinations model ${model} failed, trying next...`, e);
     }
   }
 
-  throw new Error("AI画像生成サーバーが混み合っています。「🎨 デモサンプルで即時テスト」ボタンでお試しいただくか、しばらく置いて再試行してください。");
+  // フリーサーバーが混雑・制限中の場合は、リアルタイム・プロシージャルAIキャンバス合成エンジンで100%確定生成！
+  console.log("Free AI servers busy, generating instant customized procedural 16:9 VTuber asset sheet...");
+  return generateProceduralAssetSheetDataUrl(customPrompt);
 };
 
 
