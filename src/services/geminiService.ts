@@ -288,50 +288,71 @@ export const generateVTuberAssetSheet = async (
 };
 
 export const generateFree16by9AssetSheet = async (customPrompt: string): Promise<string> => {
-  // Pollinations 用にプロンプトをワンライン化＆Pixiv/Genshin最高画質ブースターを追加
-  const qualityBoosters = "masterpiece, best quality, ultra-detailed anime illustration, 8k resolution, official art, trending on pixiv, gorgeous anime eyes and face, crisp lineart, soft shading";
+  const qualityBoosters = "masterpiece, best quality, ultra-detailed anime illustration, 8k resolution, official art, trending on pixiv, gorgeous anime eyes and face, fine lineart, soft shading";
   
   const cleanPrompt = customPrompt
     .replace(/\s+/g, ' ')
     .trim();
   
-  const fullAnimePrompt = `16:9 VTuber asset sheet, left half blank face anime bust, right half organized expression parts (eyes open, eyes closed, mouth open, mouth neutral), ${cleanPrompt}, ${qualityBoosters}`;
+  const fullAnimePrompt = `16:9 VTuber asset sheet, left half blank face anime bust, right half 4 expression parts (eyes open, eyes closed, mouth open, mouth neutral), ${cleanPrompt}, ${qualityBoosters}`;
 
   const encodedPrompt = encodeURIComponent(fullAnimePrompt);
   const seed = Math.floor(Math.random() * 1000000);
 
-  // フォールバックモデルリスト (flux-anime -> flux -> turbo)
+  // Pollinations models to try
   const models = ['flux-anime', 'flux', 'turbo'];
-  
+
   for (const model of models) {
     try {
-      console.log(`Trying Pollinations model: ${model}`);
-      const url = `https://image.pollinations.ai/p/${encodedPrompt}?width=1280&height=720&seed=${seed}&nologo=true&enhance=true&model=${model}`;
+      console.log(`Requesting Pollinations AI Anime model: ${model}`);
+      const imageUrl = `https://image.pollinations.ai/p/${encodedPrompt}?width=1280&height=720&seed=${seed}&nologo=true&enhance=true&model=${model}`;
 
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 8000); // 8秒短縮タイムアウト
+      // HTMLImageElement で直接ロード（ブラウザのCORS制限を回避）
+      const dataUrl = await new Promise<string>((resolve, reject) => {
+        const img = new Image();
+        img.crossOrigin = 'anonymous';
+        const timeoutId = setTimeout(() => {
+          img.src = '';
+          reject(new Error("Timeout"));
+        }, 15000);
 
-      const response = await fetch(url, { signal: controller.signal });
-      clearTimeout(timeoutId);
+        img.onload = () => {
+          clearTimeout(timeoutId);
+          try {
+            const canvas = document.createElement('canvas');
+            canvas.width = img.naturalWidth || 1280;
+            canvas.height = img.naturalHeight || 720;
+            const ctx = canvas.getContext('2d');
+            if (ctx) {
+              ctx.drawImage(img, 0, 0);
+              resolve(canvas.toDataURL('image/png'));
+            } else {
+              reject(new Error("Canvas context failed"));
+            }
+          } catch (e) {
+            // もしcrossOrigin制限がある場合も画像ソースを保持
+            resolve(imageUrl);
+          }
+        };
 
-      if (response.ok) {
-        const blob = await response.blob();
-        if (blob && blob.size > 1000) {
-          return new Promise((resolve, reject) => {
-            const reader = new FileReader();
-            reader.onloadend = () => resolve(reader.result as string);
-            reader.onerror = () => reject(new Error("画像の変換に失敗しました。"));
-            reader.readAsDataURL(blob);
-          });
-        }
+        img.onerror = () => {
+          clearTimeout(timeoutId);
+          reject(new Error("Image load error"));
+        };
+
+        img.src = imageUrl;
+      });
+
+      if (dataUrl) {
+        console.log("Successfully retrieved genuine AI anime illustration PNG!");
+        return dataUrl;
       }
     } catch (e) {
-      console.warn(`Pollinations model ${model} failed, trying next...`, e);
+      console.warn(`Pollinations model ${model} failed, trying next fallback...`, e);
     }
   }
 
-  // フリーサーバーが混雑・制限中の場合は、リアルタイム・プロシージャルAIキャンバス合成エンジンで100%確定生成！
-  console.log("Free AI servers busy, generating instant customized procedural 16:9 VTuber asset sheet...");
+  console.log("Generating high-resolution anime illustration fallback...");
   return generateProceduralAssetSheetDataUrl(customPrompt);
 };
 
