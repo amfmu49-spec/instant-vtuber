@@ -1,6 +1,11 @@
-// 高精度アニメイラスト Canvas 描画エンジン (Real PNG Output)
+import { ANIME_PRESET_MAP } from './animeAssetLibrary';
 
 export const generateProceduralAssetSheetDataUrl = (promptText: string): string => {
+  const trimmed = promptText.trim();
+  if (ANIME_PRESET_MAP[trimmed]) {
+    return ANIME_PRESET_MAP[trimmed];
+  }
+
   const canvas = document.createElement('canvas');
   canvas.width = 1280;
   canvas.height = 720;
