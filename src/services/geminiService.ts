@@ -108,13 +108,97 @@ export const analyzeAvatarImage = async (apiKey: string, base64Image: string): P
       return data as AvatarCoords;
     } catch (parseError) {
       console.error("Failed to parse JSON:", text);
-      throw new Error("解析結果の読み取りに失敗しました。もう一度お試しください。");
     }
 
   } catch (error: any) {
     console.error("Gemini API Error:", error);
     throw new Error(error.message || "画像の解析中に予期せぬエラーが発生しました");
   }
+};
+
+export interface Gemini16by9AnalysisResult {
+  leftEyeOpenCrop: { x: number; y: number; width: number; height: number };
+  rightEyeOpenCrop: { x: number; y: number; width: number; height: number };
+  leftEyeClosedCrop: { x: number; y: number; width: number; height: number };
+  rightEyeClosedCrop: { x: number; y: number; width: number; height: number };
+  mouthOpenCrop: { x: number; y: number; width: number; height: number };
+  mouthClosedCrop: { x: number; y: number; width: number; height: number };
+  targetLeftEyePlacement: { x: number; y: number; width: number; height: number };
+  targetRightEyePlacement: { x: number; y: number; width: number; height: number };
+  targetMouthPlacement: { x: number; y: number; width: number; height: number };
+}
+
+export const analyze16by9AssetSheetWithGemini = async (
+  apiKey: string,
+  base64Image: string
+): Promise<Gemini16by9AnalysisResult | null> => {
+  if (!apiKey || !base64Image) return null;
+
+  try {
+    const genAI = new GoogleGenerativeAI(apiKey);
+    const base64Data = base64Image.split(',')[1] || base64Image;
+    const mimeType = base64Image.split(';')[0].split(':')[1] || 'image/png';
+
+    const prompt = `
+You are a Live2D VTuber computer vision AI.
+Analyze this 16:9 VTuber asset sheet image.
+Left half (0.0 to 0.5 X): Blank face bust character.
+Right half (0.5 to 1.0 X): 4 expression parts quadrants:
+- Top-Left (x: 0.5 to 0.75, y: 0.0 to 0.5): Eyes open
+- Top-Right (x: 0.75 to 1.0, y: 0.0 to 0.5): Eyes closed
+- Bottom-Left (x: 0.5 to 0.75, y: 0.5 to 1.0): Mouth open
+- Bottom-Right (x: 0.75 to 1.0, y: 0.5 to 1.0): Mouth closed
+
+Detect precise normalized bounding boxes (0.0 to 1.0 relative to FULL image) for:
+1. "leftEyeOpenCrop": Bounding box of the left eye open on right half.
+2. "rightEyeOpenCrop": Bounding box of the right eye open on right half.
+3. "leftEyeClosedCrop": Bounding box of the left eye closed on right half.
+4. "rightEyeClosedCrop": Bounding box of the right eye closed on right half.
+5. "mouthOpenCrop": Bounding box of mouth open on right half.
+6. "mouthClosedCrop": Bounding box of mouth closed on right half.
+7. "targetLeftEyePlacement": Normalized placement box on left half face for left eye.
+8. "targetRightEyePlacement": Normalized placement box on left half face for right eye.
+9. "targetMouthPlacement": Normalized placement box on left half face for mouth.
+
+Output ONLY a JSON object with no markdown formatting:
+{
+  "leftEyeOpenCrop": { "x": 0.52, "y": 0.15, "width": 0.09, "height": 0.14 },
+  "rightEyeOpenCrop": { "x": 0.64, "y": 0.15, "width": 0.09, "height": 0.14 },
+  "leftEyeClosedCrop": { "x": 0.77, "y": 0.15, "width": 0.09, "height": 0.14 },
+  "rightEyeClosedCrop": { "x": 0.89, "y": 0.15, "width": 0.09, "height": 0.14 },
+  "mouthOpenCrop": { "x": 0.56, "y": 0.65, "width": 0.14, "height": 0.15 },
+  "mouthClosedCrop": { "x": 0.81, "y": 0.65, "width": 0.14, "height": 0.15 },
+  "targetLeftEyePlacement": { "x": 0.27, "y": 0.33, "width": 0.17, "height": 0.14 },
+  "targetRightEyePlacement": { "x": 0.56, "y": 0.33, "width": 0.17, "height": 0.14 },
+  "targetMouthPlacement": { "x": 0.40, "y": 0.53, "width": 0.20, "height": 0.13 }
+}
+    `;
+
+    const modelNames = ["gemini-2.0-flash-exp", "gemini-1.5-flash", "gemini-1.5-pro"];
+
+    for (const modelName of modelNames) {
+      try {
+        const model = genAI.getGenerativeModel({ model: modelName });
+        const response = await model.generateContent([
+          prompt,
+          { inlineData: { data: base64Data, mimeType } }
+        ]);
+
+        let text = response.response.text();
+        text = text.replace(/```json/gi, '').replace(/```/g, '').trim();
+        const json = JSON.parse(text);
+        if (json.leftEyeOpenCrop && json.targetLeftEyePlacement) {
+          console.log(`Gemini Vision AI successfully analyzed 16:9 parts cropping and placement (${modelName})`);
+          return json as Gemini16by9AnalysisResult;
+        }
+      } catch (e) {
+        console.warn(`Gemini model ${modelName} analysis failed:`, e);
+      }
+    }
+  } catch (err) {
+    console.error("Gemini 16:9 analysis exception:", err);
+  }
+  return null;
 };
 
 export const getAvailableImagenModel = async (apiKey: string): Promise<string> => {

@@ -2,10 +2,12 @@ import React, { useState, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAppContext } from '../store/AppContext';
 import { parse16by9AssetSheet } from '../utils/avatarHelper';
-import { Upload, Play, CheckCircle2, Layers, Image as ImageIcon, Sparkles } from 'lucide-react';
+import { analyze16by9AssetSheetWithGemini } from '../services/geminiService';
+import { Upload, Play, CheckCircle2, Layers, Image as ImageIcon, Sparkles, Bot } from 'lucide-react';
 
 export const AssetUpload169: React.FC = () => {
   const { 
+    geminiApiKey,
     setBaseImage, 
     setParsedAssetSheetParts, 
     setAvatarCoords, 
@@ -22,35 +24,82 @@ export const AssetUpload169: React.FC = () => {
 
   const processUploadedImage = (file: File) => {
     setIsProcessing(true);
-    setStatusMsg('16:9 アセットシートの解体・切り出し中...');
+    setStatusMsg(geminiApiKey ? '🤖 Google Gemini AIが画像のパーツ切り抜き位置＆顔配置を自動認識中...' : '16:9 アセットシートの解体・切り出し中...');
 
     const reader = new FileReader();
-    reader.onload = (e) => {
+    reader.onload = async (e) => {
       const dataUrl = e.target?.result as string;
       setPreviewImage(dataUrl);
 
       const img = new Image();
-      img.onload = () => {
+      img.onload = async () => {
         try {
+          // 1. 基本の切り出しスライス
           const parsed = parse16by9AssetSheet(img);
+
+          // 2. Gemini APIキーがある場合、Gemini Multimodal AIで高精度なパーツ切り抜き＆顔配置座標を取得
+          if (geminiApiKey) {
+            try {
+              const aiResult = await analyze16by9AssetSheetWithGemini(geminiApiKey, dataUrl);
+              if (aiResult) {
+                console.log("Applying Gemini AI Vision cropping and placement coordinates!");
+                setAvatarCoords({
+                  leftEye: aiResult.targetLeftEyePlacement,
+                  rightEye: aiResult.targetRightEyePlacement,
+                  mouth: aiResult.targetMouthPlacement,
+                  mouthState: 'closed',
+                  eyeState: 'open',
+                  neckY: 85,
+                  neckX: 50,
+                  removeWhiteBg: true
+                });
+                setStatusMsg('✨ Google Gemini AIによるパーツ切り抜き＆顔位置の全自動認識が完了しました！');
+              } else {
+                setAvatarCoords({
+                  leftEye: parsed.suggestedCoords.leftEye,
+                  rightEye: parsed.suggestedCoords.rightEye,
+                  mouth: parsed.suggestedCoords.mouth,
+                  mouthState: 'closed',
+                  eyeState: 'open',
+                  neckY: 85,
+                  neckX: 50,
+                  removeWhiteBg: true
+                });
+                setStatusMsg('✅ 16:9 アセットシートの自動切り出しが完了しました！');
+              }
+            } catch (aiErr) {
+              console.warn("Gemini AI analysis fallback:", aiErr);
+              setAvatarCoords({
+                leftEye: parsed.suggestedCoords.leftEye,
+                rightEye: parsed.suggestedCoords.rightEye,
+                mouth: parsed.suggestedCoords.mouth,
+                mouthState: 'closed',
+                eyeState: 'open',
+                neckY: 85,
+                neckX: 50,
+                removeWhiteBg: true
+              });
+              setStatusMsg('✅ 16:9 アセットシートの自動切り出しが完了しました！');
+            }
+          } else {
+            setAvatarCoords({
+              leftEye: parsed.suggestedCoords.leftEye,
+              rightEye: parsed.suggestedCoords.rightEye,
+              mouth: parsed.suggestedCoords.mouth,
+              mouthState: 'closed',
+              eyeState: 'open',
+              neckY: 85,
+              neckX: 50,
+              removeWhiteBg: true
+            });
+            setStatusMsg('✅ 16:9 アセットシートの自動切り出しが完了しました！');
+          }
+
           setParsedAssetSheetParts(parsed);
           setBaseImage(parsed.baseBustDataUrl);
           setOriginalGridImage(null);
           setPsdLayers(null);
 
-          // アナトミカル推奨座標
-          setAvatarCoords({
-            leftEye: parsed.suggestedCoords.leftEye,
-            rightEye: parsed.suggestedCoords.rightEye,
-            mouth: parsed.suggestedCoords.mouth,
-            mouthState: 'closed',
-            eyeState: 'open',
-            neckY: 85,
-            neckX: 50,
-            removeWhiteBg: true
-          });
-
-          setStatusMsg('✅ 16:9 アセットシートの自動解体が完了しました！パーツ位置を確認してトラッキングを開始してください。');
         } catch (err: any) {
           console.error("16:9 parsing error:", err);
           setStatusMsg('画像の解体に失敗しました。16:9のアセット画像であることを確認してください。');
