@@ -220,66 +220,9 @@ export const AssetUpload169: React.FC = () => {
         </div>
       )}
 
-      {/* Transparency slider always visible after upload */}
+      {/* Interactive Part Placement Editor */}
       {previewImage && parsedAssetSheetParts && (
-        <div style={{
-          background: 'rgba(15, 23, 42, 0.6)',
-          border: '1px solid rgba(255,255,255,0.1)',
-          borderRadius: '16px',
-          padding: '1.25rem',
-          display: 'flex',
-          flexDirection: 'column',
-          gap: '1.25rem'
-        }}>
-          {/* 透過レベル調整スライダー */}
-          <div style={{
-            background: 'rgba(0,0,0,0.3)',
-            border: '1px solid rgba(255,255,255,0.1)',
-            borderRadius: '12px',
-            padding: '1rem',
-            display: 'flex',
-            flexDirection: 'column',
-            gap: '0.75rem'
-          }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <label style={{ fontSize: '0.9rem', color: '#cbd5e1', fontWeight: 600 }}>
-                🎚️ 背景透過スレッショルド (口の内部保護)
-              </label>
-              <span style={{ fontSize: '0.85rem', color: '#c084fc', fontFamily: 'monospace', fontWeight: 600 }}>
-                {whiteThreshold} / 255 {whiteThreshold >= 250 ? '(低感度: 純白のみ)' : whiteThreshold <= 210 ? '(高感度)' : '(標準)'}
-              </span>
-            </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
-              <input
-                type="range"
-                min="180"
-                max="255"
-                step="1"
-                value={whiteThreshold}
-                onChange={(e) => {
-                  const val = Number(e.target.value);
-                  setWhiteThreshold(val);
-                  if (fileInputRef.current?.files?.[0]) {
-                    processUploadedImageWithThreshold(fileInputRef.current.files[0], val);
-                  }
-                }}
-                style={{ flex: 1, accentColor: '#a855f7', cursor: 'pointer' }}
-              />
-              <label style={{ fontSize: '0.85rem', color: '#e2e8f0', display: 'flex', alignItems: 'center', gap: '0.4rem', cursor: 'pointer' }}>
-                <input
-                  type="checkbox"
-                  checked={removeWhiteBg}
-                  onChange={(e) => setRemoveWhiteBg(e.target.checked)}
-                  style={{ accentColor: '#a855f7' }}
-                />
-                白背景透過
-              </label>
-            </div>
-          </div>
-
-          {/* Interactive Part Placement Editor */}
-          <PartPlacementEditor />
-        </div>
+        <PartPlacementEditor />
       )}
 
     </div>
@@ -287,3 +230,4 @@ export const AssetUpload169: React.FC = () => {
 };
 
 export default AssetUpload169;
+

@@ -1,13 +1,15 @@
 import React, { useRef, useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAppContext } from '../store/AppContext';
-import { Play, RotateCcw, Scissors, MapPin, Maximize2, X, Check } from 'lucide-react';
+import { Play, RotateCcw, Scissors, MapPin, Maximize2, X, Check, Sliders } from 'lucide-react';
 
 interface Box { x: number; y: number; width: number; height: number; }
 
 type CropKey = 'eyesOpenCrop' | 'eyesClosedCrop' | 'mouthOpenCrop' | 'mouthClosedCrop';
 type PlaceKey = 'eyesPlace' | 'mouthPlace';
 type ActiveKey = CropKey | PlaceKey;
+
+type DragHandle = 'move' | 'n' | 's' | 'w' | 'e' | 'nw' | 'ne' | 'sw' | 'se';
 
 interface EditorState {
   eyesOpenCrop: Box;
@@ -32,24 +34,21 @@ const LABELS: Record<string, string> = {
   eyesClosedCrop: '✂ 閉眼',
   mouthOpenCrop:  '✂ 開口',
   mouthClosedCrop:'✂ 閉口',
-  eyesPlace:  '📍 目（両目）貼り付け位置',
-  mouthPlace: '📍 口 貼り付け位置',
+  eyesPlace:  '📍 目（両目）位置',
+  mouthPlace: '📍 口 位置',
 };
 
 const DEFAULT_STATE: EditorState = {
-  // Crop coords = relative to RIGHT HALF only (0-1 maps to right 50% of sheet)
-  // Sheet right half is split: top-left=眼開, top-right=眼閉, bottom-left=口開, bottom-right=口閉
   eyesOpenCrop:   { x: 0.0,  y: 0.0,  width: 0.5,  height: 0.5  },
   eyesClosedCrop: { x: 0.5,  y: 0.0,  width: 0.5,  height: 0.5  },
   mouthOpenCrop:  { x: 0.0,  y: 0.5,  width: 0.5,  height: 0.5  },
   mouthClosedCrop:{ x: 0.5,  y: 0.5,  width: 0.5,  height: 0.5  },
-  // Place coords = relative to LEFT HALF (base bust) 0-1
   eyesPlace:  { x: 0.15, y: 0.26, width: 0.70, height: 0.24 },
   mouthPlace: { x: 0.25, y: 0.53, width: 0.50, height: 0.18 },
 };
 
 // ─────────────────────────────────────────────
-// Inner editor (used both inline and fullscreen)
+// Inner editor canvas component
 // ─────────────────────────────────────────────
 const EditorCanvas: React.FC<{
   state: EditorState;
@@ -63,7 +62,7 @@ const EditorCanvas: React.FC<{
 }> = ({ state, setState, mode, active, setActive, sheetImg, baseImg, isFullscreen }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const dragRef = useRef<{
-    key: ActiveKey; dragMode: 'move' | 'resize';
+    key: ActiveKey; handle: DragHandle;
     startMX: number; startMY: number; startBox: Box;
   } | null>(null);
 
@@ -88,7 +87,6 @@ const EditorCanvas: React.FC<{
       }
 
     if (mode === 'crop') {
-      // Show RIGHT HALF of full sheet only
       if (sheetImg) {
         const sw = sheetImg.naturalWidth || sheetImg.width;
         const sh = sheetImg.naturalHeight || sheetImg.height;
@@ -99,7 +97,6 @@ const EditorCanvas: React.FC<{
       ctx.fillText('✂ パーツ切り抜きエリア (右側半分)', 8, 18);
       ctx.restore();
     } else {
-      // Show LEFT HALF of full sheet only (base bust)
       if (sheetImg) {
         const sw = sheetImg.naturalWidth || sheetImg.width;
         const sh = sheetImg.naturalHeight || sheetImg.height;
@@ -121,14 +118,16 @@ const EditorCanvas: React.FC<{
       const bh = box.height * ch;
       const color = COLORS[key];
 
+      // Box inner overlay
       ctx.save(); ctx.globalAlpha = isAct ? 0.18 : 0.07; ctx.fillStyle = color;
       ctx.fillRect(bx, by, bw, bh); ctx.restore();
 
+      // Border line
       ctx.save(); ctx.strokeStyle = color; ctx.lineWidth = isAct ? 2.5 : 1.5;
       ctx.setLineDash(isAct ? [] : [5,4]); ctx.globalAlpha = isAct ? 1 : 0.55;
       ctx.strokeRect(bx, by, bw, bh); ctx.restore();
 
-      // Badge
+      // Badge label
       const label = LABELS[key];
       ctx.save();
       ctx.font = `bold ${isAct ? 12 : 10}px system-ui`;
@@ -138,15 +137,45 @@ const EditorCanvas: React.FC<{
       ctx.fillStyle = '#fff'; ctx.globalAlpha = 1;
       ctx.fillText(label, bx + 4, Math.max(12, by - 5)); ctx.restore();
 
-      // Resize handle
+      // Draw 8 handles for active box (Top/Bottom/Left/Right edges + 4 Corners)
       if (isAct) {
-        ctx.save(); ctx.fillStyle='#fff'; ctx.strokeStyle=color; ctx.lineWidth=2;
-        ctx.fillRect(bx+bw-8, by+bh-8, 14, 14);
-        ctx.strokeRect(bx+bw-8, by+bh-8, 14, 14); ctx.restore();
+        ctx.save();
+        ctx.fillStyle = '#ffffff';
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 2;
+
+        const handles = [
+          // Corners
+          { x: bx, y: by, type: 'corner' },                     // nw
+          { x: bx + bw, y: by, type: 'corner' },                // ne
+          { x: bx, y: by + bh, type: 'corner' },                 // sw
+          { x: bx + bw, y: by + bh, type: 'corner' },            // se
+          // Edges (pills)
+          { x: bx + bw / 2, y: by, type: 'edgeH' },             // n (top)
+          { x: bx + bw / 2, y: by + bh, type: 'edgeH' },        // s (bottom)
+          { x: bx, y: by + bh / 2, type: 'edgeV' },             // w (left)
+          { x: bx + bw, y: by + bh / 2, type: 'edgeV' },        // e (right)
+        ];
+
+        for (const h of handles) {
+          if (h.type === 'corner') {
+            ctx.fillRect(h.x - 5, h.y - 5, 10, 10);
+            ctx.strokeRect(h.x - 5, h.y - 5, 10, 10);
+          } else if (h.type === 'edgeH') {
+            // Horizontal pill for Top & Bottom edges (shrinks/expands vertical height)
+            ctx.fillRect(h.x - 14, h.y - 4, 28, 8);
+            ctx.strokeRect(h.x - 14, h.y - 4, 28, 8);
+          } else if (h.type === 'edgeV') {
+            // Vertical pill for Left & Right edges (shrinks/expands horizontal width)
+            ctx.fillRect(h.x - 4, h.y - 14, 8, 28);
+            ctx.strokeRect(h.x - 4, h.y - 14, 8, 28);
+          }
+        }
+
+        ctx.restore();
       }
     }
   }, [state, active, mode, sheetImg, baseImg, visibleKeys]);
-
 
   useEffect(() => { draw(); }, [draw]);
 
@@ -160,15 +189,38 @@ const EditorCanvas: React.FC<{
     return { cx: (e.clientX - r.left)*sx, cy: (e.clientY - r.top)*sy };
   };
 
-  const hitTest = (cx: number, cy: number) => {
+  const hitTest = (cx: number, cy: number): { key: ActiveKey; handle: DragHandle } | null => {
     const cw = canvasRef.current!.width, ch = canvasRef.current!.height;
     for (const key of [...visibleKeys].reverse()) {
       const box = state[key as keyof EditorState] as Box;
-      const bx=box.x*cw, by=box.y*ch, bw=box.width*cw, bh=box.height*ch;
-      if (active===key && cx>=bx+bw-14 && cx<=bx+bw+4 && cy>=by+bh-14 && cy<=by+bh+4)
-        return { key: key as ActiveKey, dragMode: 'resize' as const };
-      if (cx>=bx && cx<=bx+bw && cy>=by && cy<=by+bh)
-        return { key: key as ActiveKey, dragMode: 'move' as const };
+      const bx = box.x * cw, by = box.y * ch, bw = box.width * cw, bh = box.height * ch;
+
+      if (active === key) {
+        const tol = 16;
+        // Edge N (Top)
+        if (Math.abs(cy - by) <= tol && cx >= bx + 14 && cx <= bx + bw - 14)
+          return { key, handle: 'n' };
+        // Edge S (Bottom)
+        if (Math.abs(cy - (by + bh)) <= tol && cx >= bx + 14 && cx <= bx + bw - 14)
+          return { key, handle: 's' };
+        // Edge W (Left)
+        if (Math.abs(cx - bx) <= tol && cy >= by + 14 && cy <= by + bh - 14)
+          return { key, handle: 'w' };
+        // Edge E (Right)
+        if (Math.abs(cx - (bx + bw)) <= tol && cy >= by + 14 && cy <= by + bh - 14)
+          return { key, handle: 'e' };
+
+        // Corners
+        if (Math.abs(cx - bx) <= tol && Math.abs(cy - by) <= tol) return { key, handle: 'nw' };
+        if (Math.abs(cx - (bx + bw)) <= tol && Math.abs(cy - by) <= tol) return { key, handle: 'ne' };
+        if (Math.abs(cx - bx) <= tol && Math.abs(cy - (by + bh)) <= tol) return { key, handle: 'sw' };
+        if (Math.abs(cx - (bx + bw)) <= tol && Math.abs(cy - (by + bh)) <= tol) return { key, handle: 'se' };
+      }
+
+      // Inside box -> move
+      if (cx >= bx && cx <= bx + bw && cy >= by && cy <= by + bh) {
+        return { key, handle: 'move' };
+      }
     }
     return null;
   };
@@ -178,37 +230,63 @@ const EditorCanvas: React.FC<{
     const hit = hitTest(cx, cy);
     if (!hit) return;
     setActive(hit.key);
-    dragRef.current = { key: hit.key, dragMode: hit.dragMode, startMX: cx, startMY: cy,
+    dragRef.current = { key: hit.key, handle: hit.handle, startMX: cx, startMY: cy,
       startBox: { ...(state[hit.key as keyof EditorState] as Box) } };
     e.preventDefault();
   };
 
+  const processDrag = (cx: number, cy: number) => {
+    if (!dragRef.current) return;
+    const { key, handle, startMX, startMY, startBox } = dragRef.current;
+    const cw = canvasRef.current!.width, ch = canvasRef.current!.height;
+    const dx = (cx - startMX) / cw;
+    const dy = (cy - startMY) / ch;
+
+    const minDim = 0.02;
+
+    setState(prev => {
+      let { x, y, width, height } = startBox;
+
+      if (handle === 'move') {
+        x = Math.max(0, Math.min(1 - width, startBox.x + dx));
+        y = Math.max(0, Math.min(1 - height, startBox.y + dy));
+      } else {
+        // Adjust Top edge
+        if (handle === 'n' || handle === 'nw' || handle === 'ne') {
+          const newY = Math.max(0, Math.min(startBox.y + startBox.height - minDim, startBox.y + dy));
+          height = startBox.height - (newY - startBox.y);
+          y = newY;
+        }
+        // Adjust Bottom edge
+        if (handle === 's' || handle === 'sw' || handle === 'se') {
+          height = Math.max(minDim, Math.min(1 - startBox.y, startBox.height + dy));
+        }
+        // Adjust Left edge
+        if (handle === 'w' || handle === 'nw' || handle === 'sw') {
+          const newX = Math.max(0, Math.min(startBox.x + startBox.width - minDim, startBox.x + dx));
+          width = startBox.width - (newX - startBox.x);
+          x = newX;
+        }
+        // Adjust Right edge
+        if (handle === 'e' || handle === 'ne' || handle === 'se') {
+          width = Math.max(minDim, Math.min(1 - startBox.x, startBox.width + dx));
+        }
+      }
+
+      return { ...prev, [key]: { x, y, width, height } };
+    });
+  };
+
   const onMove = (e: React.MouseEvent<HTMLCanvasElement>) => {
     if (!dragRef.current) return;
-    const {cx,cy} = getCoords(e);
-    const {key, dragMode, startMX, startMY, startBox} = dragRef.current;
-    const cw = canvasRef.current!.width, ch = canvasRef.current!.height;
-    const dx=(cx-startMX)/cw, dy=(cy-startMY)/ch;
-    setState(prev => {
-      const nb: Box = dragMode === 'move'
-        ? { ...startBox, x: Math.max(0,Math.min(1-startBox.width, startBox.x+dx)), y: Math.max(0,Math.min(1-startBox.height, startBox.y+dy)) }
-        : { ...startBox, width: Math.max(0.02,Math.min(1, startBox.width+dx)), height: Math.max(0.02,Math.min(1, startBox.height+dy)) };
-      return { ...prev, [key]: nb };
-    });
+    const { cx, cy } = getCoords(e);
+    processDrag(cx, cy);
   };
 
   const onTouchMove = (e: React.TouchEvent<HTMLCanvasElement>) => {
     if (!dragRef.current) return;
-    const {cx,cy} = getCoords(e);
-    const {key, dragMode, startMX, startMY, startBox} = dragRef.current;
-    const cw = canvasRef.current!.width, ch = canvasRef.current!.height;
-    const dx=(cx-startMX)/cw, dy=(cy-startMY)/ch;
-    setState(prev => {
-      const nb: Box = dragMode === 'move'
-        ? { ...startBox, x: Math.max(0,Math.min(1-startBox.width, startBox.x+dx)), y: Math.max(0,Math.min(1-startBox.height, startBox.y+dy)) }
-        : { ...startBox, width: Math.max(0.02,Math.min(1, startBox.width+dx)), height: Math.max(0.02,Math.min(1, startBox.height+dy)) };
-      return { ...prev, [key]: nb };
-    });
+    const { cx, cy } = getCoords(e);
+    processDrag(cx, cy);
     e.preventDefault();
   };
 
@@ -217,14 +295,13 @@ const EditorCanvas: React.FC<{
     const hit = hitTest(cx, cy);
     if (!hit) return;
     setActive(hit.key);
-    dragRef.current = { key: hit.key, dragMode: hit.dragMode, startMX: cx, startMY: cy,
+    dragRef.current = { key: hit.key, handle: hit.handle, startMX: cx, startMY: cy,
       startBox: { ...(state[hit.key as keyof EditorState] as Box) } };
     e.preventDefault();
   };
 
   const onUp = () => { dragRef.current = null; };
 
-  // Canvas intrinsic size: 16:9
   const CW = 1280, CH = 720;
 
   return (
@@ -254,10 +331,19 @@ const EditorCanvas: React.FC<{
 };
 
 // ─────────────────────────────────────────────
-// Main exported component
+// Main exported PartPlacementEditor component
 // ─────────────────────────────────────────────
 export const PartPlacementEditor: React.FC = () => {
-  const { parsedAssetSheetParts, setAvatarCoords, setParsedAssetSheetParts } = useAppContext();
+  const {
+    parsedAssetSheetParts,
+    setAvatarCoords,
+    setParsedAssetSheetParts,
+    whiteThreshold,
+    setWhiteThreshold,
+    removeWhiteBg,
+    setRemoveWhiteBg,
+  } = useAppContext();
+
   const navigate = useNavigate();
 
   const [mode, setMode] = useState<'crop' | 'place'>('crop');
@@ -288,7 +374,6 @@ export const PartPlacementEditor: React.FC = () => {
     }
   }, [parsedAssetSheetParts]);
 
-  // Lock body scroll in fullscreen
   useEffect(() => {
     if (fullscreen) {
       document.body.style.overflow = 'hidden';
@@ -303,23 +388,41 @@ export const PartPlacementEditor: React.FC = () => {
     };
   }, [fullscreen]);
 
+  // Apply crops with background white keying if removeWhiteBg is enabled
   const applyManualCrops = () => {
     const img = sheetImgRef.current;
     if (!parsedAssetSheetParts || !img) return;
     const iw = img.naturalWidth || img.width;
     const ih = img.naturalHeight || img.height;
-    const halfW = iw / 2;  // Crop coords are relative to right half only
+    const halfW = iw / 2;
 
-    // box.x/y/width/height are 0-1 relative to the right half
     const crop = (box: Box) => {
       const c = document.createElement('canvas');
-      c.width  = Math.max(1, Math.round(box.width  * halfW));
-      c.height = Math.max(1, Math.round(box.height * ih));
-      // Source x starts at halfW (right half origin) + box.x * halfW
-      c.getContext('2d')?.drawImage(img,
+      const cw = Math.max(1, Math.round(box.width * halfW));
+      const ch = Math.max(1, Math.round(box.height * ih));
+      c.width = cw;
+      c.height = ch;
+      const ctx = c.getContext('2d');
+      if (!ctx) return c.toDataURL();
+
+      ctx.drawImage(img,
         halfW + box.x * halfW, box.y * ih,
         box.width * halfW, box.height * ih,
-        0, 0, c.width, c.height);
+        0, 0, cw, ch);
+
+      // Perform white background transparency keying if enabled
+      if (removeWhiteBg) {
+        const imgData = ctx.getImageData(0, 0, cw, ch);
+        const d = imgData.data;
+        const thresh = whiteThreshold;
+        for (let i = 0; i < d.length; i += 4) {
+          if (d[i] >= thresh && d[i + 1] >= thresh && d[i + 2] >= thresh) {
+            d[i + 3] = 0;
+          }
+        }
+        ctx.putImageData(imgData, 0, 0);
+      }
+
       return c.toDataURL();
     };
 
@@ -342,7 +445,7 @@ export const PartPlacementEditor: React.FC = () => {
       eyeState: 'open',
       neckY: 85,
       neckX: 50,
-      removeWhiteBg: true,
+      removeWhiteBg: removeWhiteBg,
       eyesBox: state.eyesPlace,
     } as any);
     setFullscreen(false);
@@ -366,6 +469,96 @@ export const PartPlacementEditor: React.FC = () => {
     baseImg: baseImgRef.current,
   };
 
+  // Current active box
+  const curBox = state[active as keyof EditorState] as Box;
+
+  // Update width symmetrically (center X fixed)
+  const setSymmetricWidth = (newW: number) => {
+    setState(prev => {
+      const b = prev[active as keyof EditorState] as Box;
+      const centerX = b.x + b.width / 2;
+      const newX = Math.max(0, Math.min(1 - newW, centerX - newW / 2));
+      return { ...prev, [active]: { ...b, x: newX, width: newW } };
+    });
+  };
+
+  // Update height symmetrically (center Y fixed)
+  const setSymmetricHeight = (newH: number) => {
+    setState(prev => {
+      const b = prev[active as keyof EditorState] as Box;
+      const centerY = b.y + b.height / 2;
+      const newY = Math.max(0, Math.min(1 - newH, centerY - newH / 2));
+      return { ...prev, [active]: { ...b, y: newY, height: newH } };
+    });
+  };
+
+  // Update Center X position
+  const setCenterX = (newCX: number) => {
+    setState(prev => {
+      const b = prev[active as keyof EditorState] as Box;
+      const newX = Math.max(0, Math.min(1 - b.width, newCX - b.width / 2));
+      return { ...prev, [active]: { ...b, x: newX } };
+    });
+  };
+
+  // Update Center Y position
+  const setCenterY = (newCY: number) => {
+    setState(prev => {
+      const b = prev[active as keyof EditorState] as Box;
+      const newY = Math.max(0, Math.min(1 - b.height, newCY - b.height / 2));
+      return { ...prev, [active]: { ...b, y: newY } };
+    });
+  };
+
+  const curCenterX = (curBox.x + curBox.width / 2);
+  const curCenterY = (curBox.y + curBox.height / 2);
+
+  // ─────────────────────────────────────────────
+  // Transparency slider component (integrated)
+  // ─────────────────────────────────────────────
+  const TransparencyBar = (
+    <div style={{
+      background: 'rgba(0,0,0,0.35)',
+      border: '1px solid rgba(255,255,255,0.1)',
+      borderRadius: '10px',
+      padding: '0.45rem 0.75rem',
+      display: 'flex',
+      alignItems: 'center',
+      gap: '0.75rem',
+      flexWrap: 'wrap',
+      flexShrink: 0,
+    }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', flex: 1, minWidth: '220px' }}>
+        <Sliders size={14} color="#c084fc" />
+        <span style={{ fontSize: '0.76rem', color: '#cbd5e1', fontWeight: 600 }}>
+          透過感度:
+        </span>
+        <input
+          type="range"
+          min="180"
+          max="255"
+          step="1"
+          value={whiteThreshold}
+          onChange={(e) => setWhiteThreshold(Number(e.target.value))}
+          style={{ flex: 1, accentColor: '#a855f7', cursor: 'pointer' }}
+        />
+        <span style={{ fontSize: '0.72rem', color: '#c084fc', fontFamily: 'monospace', fontWeight: 700, width: '32px' }}>
+          {whiteThreshold}
+        </span>
+      </div>
+
+      <label style={{ fontSize: '0.76rem', color: '#e2e8f0', display: 'flex', alignItems: 'center', gap: '0.35rem', cursor: 'pointer' }}>
+        <input
+          type="checkbox"
+          checked={removeWhiteBg}
+          onChange={(e) => setRemoveWhiteBg(e.target.checked)}
+          style={{ accentColor: '#a855f7' }}
+        />
+        白背景透過
+      </label>
+    </div>
+  );
+
   // ─ FULLSCREEN OVERLAY ─
   if (fullscreen) {
     return (
@@ -373,7 +566,7 @@ export const PartPlacementEditor: React.FC = () => {
         position: 'fixed', inset: 0, zIndex: 9999,
         background: '#0f172a',
         display: 'flex', flexDirection: 'column',
-        height: '100dvh',       // dynamic viewport height (handles mobile address bar)
+        height: '100dvh',
         overflow: 'hidden',
       }}>
 
@@ -393,7 +586,7 @@ export const PartPlacementEditor: React.FC = () => {
             background: mode==='crop'?'rgba(99,102,241,0.3)':'transparent',
             color: mode==='crop'?'#a5b4fc':'#94a3b8', cursor: 'pointer',
             display: 'flex', alignItems: 'center', gap: '0.25rem',
-          }}><Scissors size={13}/> 切り抜き</button>
+          }}><Scissors size={13}/> 1. 切り抜き</button>
 
           <button onClick={() => switchMode('place')} style={{
             padding: '0.3rem 0.65rem', borderRadius: '7px', fontSize: '0.8rem', fontWeight: 700,
@@ -401,22 +594,18 @@ export const PartPlacementEditor: React.FC = () => {
             background: mode==='place'?'rgba(16,185,129,0.3)':'transparent',
             color: mode==='place'?'#6ee7b7':'#94a3b8', cursor: 'pointer',
             display: 'flex', alignItems: 'center', gap: '0.25rem',
-          }}><MapPin size={13}/> 貼り付け</button>
+          }}><MapPin size={13}/> 2. 貼り付け</button>
 
-          {/* Spacer */}
           <div style={{ flex: 1 }} />
 
-          {/* Reset + Close + Confirm */}
           <button onClick={() => setState(DEFAULT_STATE)} style={{
             padding: '0.3rem 0.55rem', borderRadius: '7px', border: '1px solid rgba(255,255,255,0.12)',
             background: 'rgba(255,255,255,0.06)', color: '#94a3b8', cursor: 'pointer', fontSize: '0.75rem',
-            display: 'flex', alignItems: 'center', gap: '0.2rem',
           }}><RotateCcw size={12}/></button>
 
           <button onClick={() => setFullscreen(false)} style={{
             padding: '0.3rem 0.55rem', borderRadius: '7px', border: '1px solid rgba(255,255,255,0.12)',
             background: 'rgba(255,255,255,0.06)', color: '#cbd5e1', cursor: 'pointer', fontSize: '0.75rem',
-            display: 'flex', alignItems: 'center', gap: '0.2rem',
           }}><X size={14}/></button>
 
           <button onClick={handleConfirm} style={{
@@ -427,28 +616,32 @@ export const PartPlacementEditor: React.FC = () => {
           }}><Check size={14}/> 確定</button>
         </div>
 
-        {/* ── ROW 2: Part selector pills ── */}
+        {/* ── ROW 2: Part selector pills + Transparency ── */}
         <div style={{
-          display: 'flex', gap: '0.3rem', padding: '0.35rem 0.6rem',
+          display: 'flex', flexDirection: 'column', gap: '0.35rem', padding: '0.35rem 0.6rem',
           background: 'rgba(15,23,42,0.92)',
           borderBottom: '1px solid rgba(255,255,255,0.06)',
           flexShrink: 0,
-          flexWrap: 'wrap',
         }}>
-          {(visibleKeys as ActiveKey[]).map(key => (
-            <button key={key} onClick={() => setActive(key)} style={{
-              padding: '0.2rem 0.6rem', borderRadius: '10px', fontSize: '0.75rem',
-              border: `2px solid ${active===key ? COLORS[key] : 'rgba(255,255,255,0.1)'}`,
-              background: active===key ? `${COLORS[key]}30` : 'transparent',
-              color: active===key ? '#fff' : '#94a3b8', cursor: 'pointer', fontWeight: active===key?700:400,
-            }}>{LABELS[key]}</button>
-          ))}
+          <div style={{ display: 'flex', gap: '0.3rem', flexWrap: 'wrap' }}>
+            {(visibleKeys as ActiveKey[]).map(key => (
+              <button key={key} onClick={() => setActive(key)} style={{
+                padding: '0.2rem 0.6rem', borderRadius: '10px', fontSize: '0.75rem',
+                border: `2px solid ${active===key ? COLORS[key] : 'rgba(255,255,255,0.1)'}`,
+                background: active===key ? `${COLORS[key]}30` : 'transparent',
+                color: active===key ? '#fff' : '#94a3b8', cursor: 'pointer', fontWeight: active===key?700:400,
+              }}>{LABELS[key]}</button>
+            ))}
+          </div>
+
+          {/* Integrated Transparency Slider */}
+          {TransparencyBar}
         </div>
 
         {/* ── Canvas: fills all remaining space ── */}
         <div style={{
           flex: 1,
-          minHeight: 0,          // ← critical: lets flex child shrink below content size
+          minHeight: 0,
           display: 'flex',
           alignItems: 'stretch',
           justifyContent: 'center',
@@ -458,7 +651,7 @@ export const PartPlacementEditor: React.FC = () => {
           <EditorCanvas {...canvasProps} isFullscreen />
         </div>
 
-        {/* ── Bottom sliders: 2×2 compact grid ── */}
+        {/* ── Bottom sliders: Symmetric Width/Height & Center Position ── */}
         <div style={{
           background: 'rgba(15,23,42,0.97)',
           borderTop: '1px solid rgba(255,255,255,0.08)',
@@ -468,34 +661,207 @@ export const PartPlacementEditor: React.FC = () => {
           gap: '0.3rem 0.8rem',
           flexShrink: 0,
         }}>
-          {(['x','y','width','height'] as const).map(field => (
-            <label key={field} style={{ display:'flex', flexDirection:'column', gap:'0.08rem' }}>
-              <span style={{ fontSize:'0.68rem', color: COLORS[active], fontWeight: 600 }}>
-                {field==='x'?'X位置':field==='y'?'Y位置':field==='width'?'横幅':'縦幅'} {((state[active as keyof EditorState] as Box)[field]*100).toFixed(1)}%
-              </span>
-              <input type="range"
-                min={field==='width'||field==='height'?0.02:0}
-                max={field==='width'||field==='height'?0.95:1}
-                step={0.005}
-                value={(state[active as keyof EditorState] as Box)[field]}
-                onChange={e => setState(prev => ({
-                  ...prev,
-                  [active]: { ...(prev[active as keyof EditorState] as Box), [field]: Number(e.target.value) }
-                }))}
-                style={{ accentColor: COLORS[active], cursor:'pointer', width: '100%' }}
-              />
-            </label>
-          ))}
+          {/* 横幅（左右狭まる） */}
+          <label style={{ display:'flex', flexDirection:'column', gap:'0.08rem' }}>
+            <span style={{ fontSize:'0.68rem', color: COLORS[active], fontWeight: 600 }}>
+              ↔ 横幅 (左右から伸縮): {(curBox.width * 100).toFixed(1)}%
+            </span>
+            <input type="range"
+              min="0.02" max="0.95" step="0.005"
+              value={curBox.width}
+              onChange={e => setSymmetricWidth(Number(e.target.value))}
+              style={{ accentColor: COLORS[active], cursor:'pointer', width: '100%' }}
+            />
+          </label>
+
+          {/* 縦幅（上下狭まる） */}
+          <label style={{ display:'flex', flexDirection:'column', gap:'0.08rem' }}>
+            <span style={{ fontSize:'0.68rem', color: COLORS[active], fontWeight: 600 }}>
+              ↕ 縦幅 (上下から伸縮): {(curBox.height * 100).toFixed(1)}%
+            </span>
+            <input type="range"
+              min="0.02" max="0.95" step="0.005"
+              value={curBox.height}
+              onChange={e => setSymmetricHeight(Number(e.target.value))}
+              style={{ accentColor: COLORS[active], cursor:'pointer', width: '100%' }}
+            />
+          </label>
+
+          {/* X位置（中心移動） */}
+          <label style={{ display:'flex', flexDirection:'column', gap:'0.08rem' }}>
+            <span style={{ fontSize:'0.68rem', color: '#94a3b8' }}>
+              X位置 (中心): {(curCenterX * 100).toFixed(1)}%
+            </span>
+            <input type="range"
+              min="0" max="1" step="0.005"
+              value={curCenterX}
+              onChange={e => setCenterX(Number(e.target.value))}
+              style={{ accentColor: COLORS[active], cursor:'pointer', width: '100%' }}
+            />
+          </label>
+
+          {/* Y位置（中心移動） */}
+          <label style={{ display:'flex', flexDirection:'column', gap:'0.08rem' }}>
+            <span style={{ fontSize:'0.68rem', color: '#94a3b8' }}>
+              Y位置 (中心): {(curCenterY * 100).toFixed(1)}%
+            </span>
+            <input type="range"
+              min="0" max="1" step="0.005"
+              value={curCenterY}
+              onChange={e => setCenterY(Number(e.target.value))}
+              style={{ accentColor: COLORS[active], cursor:'pointer', width: '100%' }}
+            />
+          </label>
         </div>
       </div>
     );
   }
 
-
-  // ─ INLINE (compact) ─
+  // ─ INLINE COMPONENT ─
   return (
     <div style={{ display:'flex', flexDirection:'column', gap:'0.85rem' }}>
-      {/* Open fullscreen button */}
+
+      {/* Mode selection tabs */}
+      <div style={{ display: 'flex', gap: '0.5rem' }}>
+        <button
+          onClick={() => switchMode('crop')}
+          style={{
+            flex: 1,
+            padding: '0.65rem',
+            borderRadius: '10px',
+            border: `2px solid ${mode === 'crop' ? '#6366f1' : 'rgba(255,255,255,0.1)'}`,
+            background: mode === 'crop' ? 'rgba(99,102,241,0.2)' : 'rgba(255,255,255,0.04)',
+            color: '#fff',
+            cursor: 'pointer',
+            fontWeight: mode === 'crop' ? 700 : 400,
+            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.4rem',
+          }}
+        >
+          <Scissors size={16} />
+          ✂ 1. 切り抜き位置を指定 (右側)
+        </button>
+
+        <button
+          onClick={() => switchMode('place')}
+          style={{
+            flex: 1,
+            padding: '0.65rem',
+            borderRadius: '10px',
+            border: `2px solid ${mode === 'place' ? '#10b981' : 'rgba(255,255,255,0.1)'}`,
+            background: mode === 'place' ? 'rgba(16,185,129,0.2)' : 'rgba(255,255,255,0.04)',
+            color: '#fff',
+            cursor: 'pointer',
+            fontWeight: mode === 'place' ? 700 : 400,
+            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.4rem',
+          }}
+        >
+          <MapPin size={16} />
+          📍 2. 貼り付け位置を指定 (左側)
+        </button>
+      </div>
+
+      {/* Part selector pills */}
+      <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
+        {(visibleKeys as ActiveKey[]).map(key => (
+          <button
+            key={key}
+            onClick={() => setActive(key)}
+            style={{
+              padding: '0.35rem 0.85rem',
+              borderRadius: '16px',
+              border: `2px solid ${active === key ? COLORS[key] : 'rgba(255,255,255,0.1)'}`,
+              background: active === key ? `${COLORS[key]}28` : 'rgba(255,255,255,0.04)',
+              color: active === key ? '#fff' : '#94a3b8',
+              cursor: 'pointer',
+              fontSize: '0.82rem',
+              fontWeight: active === key ? 700 : 400,
+            }}
+          >
+            {LABELS[key]}
+          </button>
+        ))}
+      </div>
+
+      {/* Transparency Control Bar */}
+      {TransparencyBar}
+
+      {/* Inline Canvas */}
+      <div style={{ borderRadius: '12px', overflow: 'hidden', boxShadow: '0 8px 32px rgba(0,0,0,0.5)', border: '1px solid rgba(255,255,255,0.1)' }}>
+        <EditorCanvas {...canvasProps} />
+      </div>
+
+      {/* Sliders for active box */}
+      <div style={{
+        background: 'rgba(15,23,42,0.7)',
+        border: `1px solid ${COLORS[active]}44`,
+        borderRadius: '12px',
+        padding: '0.85rem',
+        display: 'grid',
+        gridTemplateColumns: '1fr 1fr',
+        gap: '0.6rem 1rem',
+      }}>
+        <div style={{ gridColumn: '1/-1', fontSize: '0.82rem', color: COLORS[active], fontWeight: 700 }}>
+          🎚️ {LABELS[active]} — サイズ・位置の調整
+        </div>
+
+        {/* 横幅 */}
+        <label style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
+          <span style={{ fontSize: '0.75rem', color: '#94a3b8' }}>
+            ↔ 横幅 (左右から伸縮): {(curBox.width * 100).toFixed(1)}%
+          </span>
+          <input
+            type="range"
+            min="0.02" max="0.95" step="0.005"
+            value={curBox.width}
+            onChange={e => setSymmetricWidth(Number(e.target.value))}
+            style={{ accentColor: COLORS[active], cursor: 'pointer' }}
+          />
+        </label>
+
+        {/* 縦幅 */}
+        <label style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
+          <span style={{ fontSize: '0.75rem', color: '#94a3b8' }}>
+            ↕ 縦幅 (上下から伸縮): {(curBox.height * 100).toFixed(1)}%
+          </span>
+          <input
+            type="range"
+            min="0.02" max="0.95" step="0.005"
+            value={curBox.height}
+            onChange={e => setSymmetricHeight(Number(e.target.value))}
+            style={{ accentColor: COLORS[active], cursor: 'pointer' }}
+          />
+        </label>
+
+        {/* X位置 */}
+        <label style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
+          <span style={{ fontSize: '0.75rem', color: '#94a3b8' }}>
+            X位置 (中心): {(curCenterX * 100).toFixed(1)}%
+          </span>
+          <input
+            type="range"
+            min="0" max="1" step="0.005"
+            value={curCenterX}
+            onChange={e => setCenterX(Number(e.target.value))}
+            style={{ accentColor: COLORS[active], cursor: 'pointer' }}
+          />
+        </label>
+
+        {/* Y位置 */}
+        <label style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
+          <span style={{ fontSize: '0.75rem', color: '#94a3b8' }}>
+            Y位置 (中心): {(curCenterY * 100).toFixed(1)}%
+          </span>
+          <input
+            type="range"
+            min="0" max="1" step="0.005"
+            value={curCenterY}
+            onChange={e => setCenterY(Number(e.target.value))}
+            style={{ accentColor: COLORS[active], cursor: 'pointer' }}
+          />
+        </label>
+      </div>
+
+      {/* Fullscreen button */}
       <button
         onClick={() => setFullscreen(true)}
         style={{
@@ -513,10 +879,10 @@ export const PartPlacementEditor: React.FC = () => {
         }}
       >
         <Maximize2 size={22} />
-        🖱️ フルスクリーンでパーツ配置エディターを開く
+        📱 フルスクリーンエディターで編集する
       </button>
 
-      {/* Confirm button (skip editor) */}
+      {/* Confirm button */}
       <button
         onClick={handleConfirm}
         style={{
@@ -529,8 +895,9 @@ export const PartPlacementEditor: React.FC = () => {
         }}
       >
         <Play size={18} fill="#fff" />
-        現在の配置でそのままトラッキング開始
+        この配置で確定してWebCamトラッキング開始 🎬
       </button>
+
     </div>
   );
 };
