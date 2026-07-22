@@ -1,7 +1,7 @@
 import React, { useRef, useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAppContext } from '../store/AppContext';
-import { Play, Move, RotateCcw, Scissors, MapPin } from 'lucide-react';
+import { Play, RotateCcw, Scissors, MapPin, Maximize2, X, Check } from 'lucide-react';
 
 interface Box { x: number; y: number; width: number; height: number; }
 
@@ -14,318 +14,316 @@ interface EditorState {
   eyesClosedCrop: Box;
   mouthOpenCrop: Box;
   mouthClosedCrop: Box;
-  eyesPlace: Box;  // on left half face (0-0.5 relative to full img)
+  eyesPlace: Box;
   mouthPlace: Box;
 }
 
 const COLORS: Record<string, string> = {
-  eyesOpenCrop: '#6366f1',
+  eyesOpenCrop:   '#6366f1',
   eyesClosedCrop: '#8b5cf6',
-  mouthOpenCrop: '#ec4899',
-  mouthClosedCrop: '#f43f5e',
-  eyesPlace: '#10b981',
+  mouthOpenCrop:  '#ec4899',
+  mouthClosedCrop:'#f43f5e',
+  eyesPlace:  '#10b981',
   mouthPlace: '#f59e0b',
 };
 
 const LABELS: Record<string, string> = {
-  eyesOpenCrop: '✂ 開眼 (右側から切り抜き)',
-  eyesClosedCrop: '✂ 閉眼 (右側から切り抜き)',
-  mouthOpenCrop: '✂ 開口 (右側から切り抜き)',
-  mouthClosedCrop: '✂ 閉口 (右側から切り抜き)',
-  eyesPlace: '📍 目の貼り付け位置 (左側素体)',
-  mouthPlace: '📍 口の貼り付け位置 (左側素体)',
+  eyesOpenCrop:   '✂ 開眼',
+  eyesClosedCrop: '✂ 閉眼',
+  mouthOpenCrop:  '✂ 開口',
+  mouthClosedCrop:'✂ 閉口',
+  eyesPlace:  '📍 目（両目）貼り付け位置',
+  mouthPlace: '📍 口 貼り付け位置',
 };
 
-export const PartPlacementEditor: React.FC = () => {
-  const { parsedAssetSheetParts, avatarCoords, setAvatarCoords, setParsedAssetSheetParts } = useAppContext();
-  const navigate = useNavigate();
+const DEFAULT_STATE: EditorState = {
+  eyesOpenCrop:   { x: 0.50, y: 0.02, width: 0.24, height: 0.45 },
+  eyesClosedCrop: { x: 0.76, y: 0.02, width: 0.24, height: 0.45 },
+  mouthOpenCrop:  { x: 0.50, y: 0.52, width: 0.24, height: 0.45 },
+  mouthClosedCrop:{ x: 0.76, y: 0.52, width: 0.24, height: 0.45 },
+  eyesPlace:  { x: 0.15, y: 0.26, width: 0.70, height: 0.24 },
+  mouthPlace: { x: 0.25, y: 0.53, width: 0.50, height: 0.18 },
+};
+
+// ─────────────────────────────────────────────
+// Inner editor (used both inline and fullscreen)
+// ─────────────────────────────────────────────
+const EditorCanvas: React.FC<{
+  state: EditorState;
+  setState: React.Dispatch<React.SetStateAction<EditorState>>;
+  mode: 'crop' | 'place';
+  active: ActiveKey;
+  setActive: (k: ActiveKey) => void;
+  sheetImg: HTMLImageElement | null;
+  baseImg: HTMLImageElement | null;
+  isFullscreen?: boolean;
+}> = ({ state, setState, mode, active, setActive, sheetImg, baseImg, isFullscreen }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const [mode, setMode] = useState<'crop' | 'place'>('crop');
-
-  const [state, setState] = useState<EditorState>({
-    // Default crop zones: Right half quadrants (x relative to FULL image 0-1)
-    eyesOpenCrop:   { x: 0.50, y: 0.02, width: 0.24, height: 0.45 },
-    eyesClosedCrop: { x: 0.76, y: 0.02, width: 0.24, height: 0.45 },
-    mouthOpenCrop:  { x: 0.50, y: 0.52, width: 0.24, height: 0.45 },
-    mouthClosedCrop:{ x: 0.76, y: 0.52, width: 0.24, height: 0.45 },
-    // Default placement zones: Left half (x 0-0.5 relative to base image = 0-1)
-    eyesPlace:  { x: 0.20, y: 0.25, width: 0.60, height: 0.22 },
-    mouthPlace: { x: 0.30, y: 0.52, width: 0.40, height: 0.18 },
-  });
-
-  const [active, setActive] = useState<ActiveKey>('eyesOpenCrop');
-
-  const baseImgRef = useRef<HTMLImageElement | null>(null);
-  // Full 16:9 sheet image (for crop editor)
-  const [sheetDataUrl, setSheetDataUrl] = useState<string | null>(null);
-
   const dragRef = useRef<{
-    key: ActiveKey;
-    mode: 'move' | 'resize';
-    startMX: number;
-    startMY: number;
-    startBox: Box;
+    key: ActiveKey; dragMode: 'move' | 'resize';
+    startMX: number; startMY: number; startBox: Box;
   } | null>(null);
 
-  // Try to recover original sheet from parsedAssetSheetParts
-  useEffect(() => {
-    if (!parsedAssetSheetParts) return;
-    // If the base bust data url is stored, use it for display
-    if (parsedAssetSheetParts._originalSheetDataUrl) {
-      setSheetDataUrl(parsedAssetSheetParts._originalSheetDataUrl);
-      const img = new Image();
-      img.onload = () => { baseImgRef.current = img; redraw(); };
-      img.src = parsedAssetSheetParts._originalSheetDataUrl;
-    } else if (parsedAssetSheetParts.baseBustDataUrl) {
-      // If no full sheet, use base bust
-      setSheetDataUrl(parsedAssetSheetParts.baseBustDataUrl);
-      const img = new Image();
-      img.onload = () => { baseImgRef.current = img; redraw(); };
-      img.src = parsedAssetSheetParts.baseBustDataUrl;
-    }
-  }, [parsedAssetSheetParts]);
+  const visibleKeys: ActiveKey[] = mode === 'crop'
+    ? ['eyesOpenCrop', 'eyesClosedCrop', 'mouthOpenCrop', 'mouthClosedCrop']
+    : ['eyesPlace', 'mouthPlace'];
 
-  const activeKeys = mode === 'crop'
-    ? ['eyesOpenCrop', 'eyesClosedCrop', 'mouthOpenCrop', 'mouthClosedCrop'] as CropKey[]
-    : ['eyesPlace', 'mouthPlace'] as PlaceKey[];
-
-  const redraw = useCallback(() => {
+  const draw = useCallback(() => {
     const canvas = canvasRef.current;
-    const img = baseImgRef.current;
     if (!canvas) return;
-
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
-
     const cw = canvas.width;
     const ch = canvas.height;
 
     // Checkerboard bg
     ctx.clearRect(0, 0, cw, ch);
-    for (let ty = 0; ty < ch; ty += 16) {
+    for (let ty = 0; ty < ch; ty += 16)
       for (let tx = 0; tx < cw; tx += 16) {
-        ctx.fillStyle = ((Math.floor(tx / 16) + Math.floor(ty / 16)) % 2 === 0) ? '#374151' : '#1f2937';
+        ctx.fillStyle = ((Math.floor(tx/16)+Math.floor(ty/16))%2===0) ? '#374151':'#1f2937';
         ctx.fillRect(tx, ty, 16, 16);
       }
-    }
 
+    const img = mode === 'crop' ? sheetImg : baseImg;
     if (img) {
-      if (mode === 'crop') {
-        // Show full 16:9 sheet (if available), else show base bust tiled
-        ctx.drawImage(img, 0, 0, cw, ch);
-
-        // Draw divider line at center
-        ctx.save();
-        ctx.strokeStyle = 'rgba(255, 255, 255, 0.25)';
-        ctx.lineWidth = 2;
-        ctx.setLineDash([6, 4]);
-        ctx.beginPath();
-        ctx.moveTo(cw / 2, 0);
-        ctx.lineTo(cw / 2, ch);
-        ctx.stroke();
-        ctx.restore();
-
-        // Labels
-        ctx.save();
-        ctx.fillStyle = 'rgba(255,255,255,0.55)';
-        ctx.font = 'bold 11px system-ui';
-        ctx.fillText('◀ 左半分: 素体 (のっぺらぼう)', 8, 14);
-        ctx.fillText('▶ 右半分: パーツ素材 (切り抜き元)', cw / 2 + 6, 14);
-        ctx.restore();
-      } else {
-        // In place mode, show just left half (base bust, 1x aspect) on full canvas
-        ctx.drawImage(img, 0, 0, cw, ch);
-      }
-    }
-
-    // Draw all boxes for current mode
-    const keys = mode === 'crop'
-      ? ['eyesOpenCrop', 'eyesClosedCrop', 'mouthOpenCrop', 'mouthClosedCrop'] as ActiveKey[]
-      : ['eyesPlace', 'mouthPlace'] as ActiveKey[];
-
-    for (const key of keys) {
-      const box = state[key as keyof EditorState] as Box;
-      const isActive = active === key;
-
-      // In place mode, the box coordinates are relative to the left half (0-1) -> canvas coords
-      let bx: number, by: number, bw: number, bh: number;
       if (mode === 'place') {
-        bx = box.x * cw;
-        by = box.y * ch;
-        bw = box.width * cw;
-        bh = box.height * ch;
+        // Show only the left half of the sheet (the face)
+        ctx.drawImage(img, 0, 0, img.width / 2, img.height, 0, 0, cw, ch);
       } else {
-        // crop: coordinates are 0-1 relative to full image
-        bx = box.x * cw;
-        by = box.y * ch;
-        bw = box.width * cw;
-        bh = box.height * ch;
-      }
-
-      const color = COLORS[key];
-
-      // Fill overlay
-      ctx.save();
-      ctx.globalAlpha = isActive ? 0.15 : 0.07;
-      ctx.fillStyle = color;
-      ctx.fillRect(bx, by, bw, bh);
-      ctx.restore();
-
-      // Border
-      ctx.save();
-      ctx.strokeStyle = color;
-      ctx.lineWidth = isActive ? 2.5 : 1.5;
-      ctx.setLineDash(isActive ? [] : [5, 4]);
-      ctx.globalAlpha = isActive ? 1.0 : 0.6;
-      ctx.strokeRect(bx, by, bw, bh);
-      ctx.restore();
-
-      // Label
-      const label = LABELS[key];
-      ctx.save();
-      ctx.font = `bold ${isActive ? 12 : 10}px system-ui`;
-      const tw = ctx.measureText(label).width + 8;
-      ctx.fillStyle = color;
-      ctx.globalAlpha = 0.9;
-      ctx.fillRect(bx, by - 18, tw, 17);
-      ctx.fillStyle = '#fff';
-      ctx.globalAlpha = 1;
-      ctx.fillText(label, bx + 4, by - 5);
-      ctx.restore();
-
-      // Resize handle
-      if (isActive) {
+        ctx.drawImage(img, 0, 0, cw, ch);
+        // Centre divider
         ctx.save();
-        ctx.fillStyle = '#fff';
-        ctx.strokeStyle = color;
-        ctx.lineWidth = 2;
-        ctx.fillRect(bx + bw - 8, by + bh - 8, 14, 14);
-        ctx.strokeRect(bx + bw - 8, by + bh - 8, 14, 14);
+        ctx.strokeStyle = 'rgba(255,255,255,0.3)';
+        ctx.lineWidth = 2; ctx.setLineDash([6,4]);
+        ctx.beginPath(); ctx.moveTo(cw/2,0); ctx.lineTo(cw/2,ch); ctx.stroke();
+        ctx.restore();
+        ctx.save();
+        ctx.fillStyle='rgba(255,255,255,0.45)'; ctx.font='bold 11px system-ui';
+        ctx.fillText('◀ 素体 (のっぺらぼう)', 8, 14);
+        ctx.fillText('▶ パーツ素材 (切り抜き元)', cw/2+6, 14);
         ctx.restore();
       }
     }
-  }, [state, active, mode]);
 
-  useEffect(() => { redraw(); }, [state, active, mode, redraw]);
-
-  const getCanvasCoords = (e: React.MouseEvent | React.TouchEvent) => {
-    const canvas = canvasRef.current!;
-    const rect = canvas.getBoundingClientRect();
-    const scaleX = canvas.width / rect.width;
-    const scaleY = canvas.height / rect.height;
-    let cx: number, cy: number;
-    if ('touches' in e) {
-      cx = (e.touches[0].clientX - rect.left) * scaleX;
-      cy = (e.touches[0].clientY - rect.top) * scaleY;
-    } else {
-      cx = (e.clientX - rect.left) * scaleX;
-      cy = (e.clientY - rect.top) * scaleY;
-    }
-    return { cx, cy };
-  };
-
-  const hitTest = (cx: number, cy: number) => {
-    const cw = canvasRef.current!.width;
-    const ch = canvasRef.current!.height;
-    const keys = mode === 'crop'
-      ? ['eyesOpenCrop', 'eyesClosedCrop', 'mouthOpenCrop', 'mouthClosedCrop'] as ActiveKey[]
-      : ['eyesPlace', 'mouthPlace'] as ActiveKey[];
-
-    for (const key of [...keys].reverse()) {
+    for (const key of visibleKeys) {
       const box = state[key as keyof EditorState] as Box;
+      const isAct = active === key;
+
+      // In place mode coords are relative to base (0-1 of left-half display)
       const bx = box.x * cw;
       const by = box.y * ch;
       const bw = box.width * cw;
       const bh = box.height * ch;
+      const color = COLORS[key];
 
-      if (active === key && cx >= bx + bw - 14 && cx <= bx + bw + 4 && cy >= by + bh - 14 && cy <= by + bh + 4) {
-        return { key, dragMode: 'resize' as const };
+      ctx.save(); ctx.globalAlpha = isAct ? 0.18 : 0.07; ctx.fillStyle = color;
+      ctx.fillRect(bx, by, bw, bh); ctx.restore();
+
+      ctx.save(); ctx.strokeStyle = color; ctx.lineWidth = isAct ? 2.5 : 1.5;
+      ctx.setLineDash(isAct ? [] : [5,4]); ctx.globalAlpha = isAct ? 1 : 0.55;
+      ctx.strokeRect(bx, by, bw, bh); ctx.restore();
+
+      // Badge
+      const label = LABELS[key];
+      ctx.save();
+      ctx.font = `bold ${isAct ? 12 : 10}px system-ui`;
+      const tw = ctx.measureText(label).width + 8;
+      ctx.fillStyle = color; ctx.globalAlpha = 0.92;
+      ctx.fillRect(bx, Math.max(0, by - 18), tw, 17);
+      ctx.fillStyle = '#fff'; ctx.globalAlpha = 1;
+      ctx.fillText(label, bx + 4, Math.max(12, by - 5)); ctx.restore();
+
+      // Resize handle
+      if (isAct) {
+        ctx.save(); ctx.fillStyle='#fff'; ctx.strokeStyle=color; ctx.lineWidth=2;
+        ctx.fillRect(bx+bw-8, by+bh-8, 14, 14);
+        ctx.strokeRect(bx+bw-8, by+bh-8, 14, 14); ctx.restore();
       }
-      if (cx >= bx && cx <= bx + bw && cy >= by && cy <= by + bh) {
-        return { key, dragMode: 'move' as const };
-      }
+    }
+  }, [state, active, mode, sheetImg, baseImg, visibleKeys]);
+
+  useEffect(() => { draw(); }, [draw]);
+
+  const getCoords = (e: React.MouseEvent<HTMLCanvasElement> | React.TouchEvent<HTMLCanvasElement>) => {
+    const c = canvasRef.current!;
+    const r = c.getBoundingClientRect();
+    const sx = c.width / r.width, sy = c.height / r.height;
+    if ('touches' in e) {
+      return { cx: (e.touches[0].clientX - r.left)*sx, cy: (e.touches[0].clientY - r.top)*sy };
+    }
+    return { cx: (e.clientX - r.left)*sx, cy: (e.clientY - r.top)*sy };
+  };
+
+  const hitTest = (cx: number, cy: number) => {
+    const cw = canvasRef.current!.width, ch = canvasRef.current!.height;
+    for (const key of [...visibleKeys].reverse()) {
+      const box = state[key as keyof EditorState] as Box;
+      const bx=box.x*cw, by=box.y*ch, bw=box.width*cw, bh=box.height*ch;
+      if (active===key && cx>=bx+bw-14 && cx<=bx+bw+4 && cy>=by+bh-14 && cy<=by+bh+4)
+        return { key: key as ActiveKey, dragMode: 'resize' as const };
+      if (cx>=bx && cx<=bx+bw && cy>=by && cy<=by+bh)
+        return { key: key as ActiveKey, dragMode: 'move' as const };
     }
     return null;
   };
 
-  const onPointerDown = (e: React.MouseEvent<HTMLCanvasElement>) => {
-    const { cx, cy } = getCanvasCoords(e);
+  const onDown = (e: React.MouseEvent<HTMLCanvasElement>) => {
+    const {cx,cy} = getCoords(e);
     const hit = hitTest(cx, cy);
-    if (!hit) { setActive(activeKeys[0]); return; }
+    if (!hit) return;
     setActive(hit.key);
-    dragRef.current = {
-      key: hit.key,
-      mode: hit.dragMode,
-      startMX: cx,
-      startMY: cy,
-      startBox: { ...(state[hit.key as keyof EditorState] as Box) },
-    };
+    dragRef.current = { key: hit.key, dragMode: hit.dragMode, startMX: cx, startMY: cy,
+      startBox: { ...(state[hit.key as keyof EditorState] as Box) } };
     e.preventDefault();
   };
 
-  const onPointerMove = (e: React.MouseEvent<HTMLCanvasElement>) => {
+  const onMove = (e: React.MouseEvent<HTMLCanvasElement>) => {
     if (!dragRef.current) return;
-    const { cx, cy } = getCanvasCoords(e);
-    const { key, mode: dmode, startMX, startMY, startBox } = dragRef.current;
-    const cw = canvasRef.current!.width;
-    const ch = canvasRef.current!.height;
-    const dx = (cx - startMX) / cw;
-    const dy = (cy - startMY) / ch;
-
+    const {cx,cy} = getCoords(e);
+    const {key, dragMode, startMX, startMY, startBox} = dragRef.current;
+    const cw = canvasRef.current!.width, ch = canvasRef.current!.height;
+    const dx=(cx-startMX)/cw, dy=(cy-startMY)/ch;
     setState(prev => {
-      let nb: Box;
-      if (dmode === 'move') {
-        nb = {
-          ...startBox,
-          x: Math.max(0, Math.min(1 - startBox.width, startBox.x + dx)),
-          y: Math.max(0, Math.min(1 - startBox.height, startBox.y + dy)),
-        };
-      } else {
-        nb = {
-          ...startBox,
-          width: Math.max(0.02, Math.min(1, startBox.width + dx)),
-          height: Math.max(0.02, Math.min(1, startBox.height + dy)),
-        };
-      }
+      const nb: Box = dragMode === 'move'
+        ? { ...startBox, x: Math.max(0,Math.min(1-startBox.width, startBox.x+dx)), y: Math.max(0,Math.min(1-startBox.height, startBox.y+dy)) }
+        : { ...startBox, width: Math.max(0.02,Math.min(1, startBox.width+dx)), height: Math.max(0.02,Math.min(1, startBox.height+dy)) };
       return { ...prev, [key]: nb };
     });
   };
 
-  const onPointerUp = () => { dragRef.current = null; };
+  const onTouchMove = (e: React.TouchEvent<HTMLCanvasElement>) => {
+    if (!dragRef.current) return;
+    const {cx,cy} = getCoords(e);
+    const {key, dragMode, startMX, startMY, startBox} = dragRef.current;
+    const cw = canvasRef.current!.width, ch = canvasRef.current!.height;
+    const dx=(cx-startMX)/cw, dy=(cy-startMY)/ch;
+    setState(prev => {
+      const nb: Box = dragMode === 'move'
+        ? { ...startBox, x: Math.max(0,Math.min(1-startBox.width, startBox.x+dx)), y: Math.max(0,Math.min(1-startBox.height, startBox.y+dy)) }
+        : { ...startBox, width: Math.max(0.02,Math.min(1, startBox.width+dx)), height: Math.max(0.02,Math.min(1, startBox.height+dy)) };
+      return { ...prev, [key]: nb };
+    });
+    e.preventDefault();
+  };
 
-  // Apply crops to parsedAssetSheetParts
+  const onTouchStart = (e: React.TouchEvent<HTMLCanvasElement>) => {
+    const {cx,cy} = getCoords(e);
+    const hit = hitTest(cx, cy);
+    if (!hit) return;
+    setActive(hit.key);
+    dragRef.current = { key: hit.key, dragMode: hit.dragMode, startMX: cx, startMY: cy,
+      startBox: { ...(state[hit.key as keyof EditorState] as Box) } };
+    e.preventDefault();
+  };
+
+  const onUp = () => { dragRef.current = null; };
+
+  // Canvas intrinsic size: 16:9
+  const CW = 1280, CH = 720;
+
+  return (
+    <canvas
+      ref={canvasRef}
+      width={CW}
+      height={CH}
+      onMouseDown={onDown}
+      onMouseMove={onMove}
+      onMouseUp={onUp}
+      onMouseLeave={onUp}
+      onTouchStart={onTouchStart}
+      onTouchMove={onTouchMove}
+      onTouchEnd={onUp}
+      style={{
+        width: '100%',
+        height: isFullscreen ? '100%' : undefined,
+        maxHeight: isFullscreen ? '100%' : undefined,
+        display: 'block',
+        cursor: dragRef.current ? 'grabbing' : 'crosshair',
+        userSelect: 'none',
+        touchAction: 'none',
+        objectFit: 'contain',
+      }}
+    />
+  );
+};
+
+// ─────────────────────────────────────────────
+// Main exported component
+// ─────────────────────────────────────────────
+export const PartPlacementEditor: React.FC = () => {
+  const { parsedAssetSheetParts, setAvatarCoords, setParsedAssetSheetParts } = useAppContext();
+  const navigate = useNavigate();
+
+  const [mode, setMode] = useState<'crop' | 'place'>('crop');
+  const [active, setActive] = useState<ActiveKey>('eyesOpenCrop');
+  const [state, setState] = useState<EditorState>(DEFAULT_STATE);
+  const [fullscreen, setFullscreen] = useState(false);
+
+  const sheetImgRef = useRef<HTMLImageElement | null>(null);
+  const baseImgRef  = useRef<HTMLImageElement | null>(null);
+  const [, forceRedraw] = useState(0);
+
+  useEffect(() => {
+    if (!parsedAssetSheetParts) return;
+    const loadImg = (src: string) => {
+      const img = new Image(); img.src = src;
+      return img;
+    };
+    if (parsedAssetSheetParts._originalSheetDataUrl) {
+      sheetImgRef.current = loadImg(parsedAssetSheetParts._originalSheetDataUrl);
+      sheetImgRef.current.onload = () => forceRedraw(n => n + 1);
+    } else if (parsedAssetSheetParts.baseBustDataUrl) {
+      sheetImgRef.current = loadImg(parsedAssetSheetParts.baseBustDataUrl);
+      sheetImgRef.current.onload = () => forceRedraw(n => n + 1);
+    }
+    if (parsedAssetSheetParts.baseBustDataUrl) {
+      baseImgRef.current = loadImg(parsedAssetSheetParts._originalSheetDataUrl || parsedAssetSheetParts.baseBustDataUrl);
+      baseImgRef.current.onload = () => forceRedraw(n => n + 1);
+    }
+  }, [parsedAssetSheetParts]);
+
+  // Lock body scroll in fullscreen
+  useEffect(() => {
+    if (fullscreen) {
+      document.body.style.overflow = 'hidden';
+      document.body.style.touchAction = 'none';
+    } else {
+      document.body.style.overflow = '';
+      document.body.style.touchAction = '';
+    }
+    return () => {
+      document.body.style.overflow = '';
+      document.body.style.touchAction = '';
+    };
+  }, [fullscreen]);
+
   const applyManualCrops = () => {
-    if (!parsedAssetSheetParts || !baseImgRef.current) return;
-    const img = baseImgRef.current;
-    const iw = img.width;
-    const ih = img.height;
+    const img = sheetImgRef.current;
+    if (!parsedAssetSheetParts || !img) return;
+    const iw = img.naturalWidth || img.width;
+    const ih = img.naturalHeight || img.height;
 
-    const cropCanvas = (box: Box) => {
+    const crop = (box: Box) => {
       const c = document.createElement('canvas');
-      c.width = Math.max(1, Math.round(box.width * iw));
+      c.width  = Math.max(1, Math.round(box.width  * iw));
       c.height = Math.max(1, Math.round(box.height * ih));
-      c.getContext('2d')?.drawImage(img, box.x * iw, box.y * ih, box.width * iw, box.height * ih, 0, 0, c.width, c.height);
+      c.getContext('2d')?.drawImage(img, box.x*iw, box.y*ih, box.width*iw, box.height*ih, 0, 0, c.width, c.height);
       return c.toDataURL();
     };
 
-    const updatedParts = {
+    setParsedAssetSheetParts({
       ...parsedAssetSheetParts,
-      eyesOpenDataUrl: cropCanvas(state.eyesOpenCrop),
-      eyesClosedDataUrl: cropCanvas(state.eyesClosedCrop),
-      mouthOpenDataUrl: cropCanvas(state.mouthOpenCrop),
-      mouthClosedDataUrl: cropCanvas(state.mouthClosedCrop),
-    };
-    setParsedAssetSheetParts(updatedParts);
+      eyesOpenDataUrl:   crop(state.eyesOpenCrop),
+      eyesClosedDataUrl: crop(state.eyesClosedCrop),
+      mouthOpenDataUrl:  crop(state.mouthOpenCrop),
+      mouthClosedDataUrl:crop(state.mouthClosedCrop),
+    });
   };
 
   const handleConfirm = () => {
     applyManualCrops();
-
-    // eyesPlace: 0-1 relative to left half. 
-    // AvatarCoords leftEye/rightEye use 0-1 relative to baseImage
-    // Set leftEye = full eyesPlace (eyes as one unit)
     setAvatarCoords({
-      leftEye: null,  // not used separately
+      leftEye: null,
       rightEye: null,
       mouth: state.mouthPlace,
       mouthState: 'closed',
@@ -333,173 +331,175 @@ export const PartPlacementEditor: React.FC = () => {
       neckY: 85,
       neckX: 50,
       removeWhiteBg: true,
-      eyesBox: state.eyesPlace,  // unified eyes placement
+      eyesBox: state.eyesPlace,
     } as any);
+    setFullscreen(false);
     navigate('/main');
   };
 
-  const reset = () => {
-    setState({
-      eyesOpenCrop:   { x: 0.50, y: 0.02, width: 0.24, height: 0.45 },
-      eyesClosedCrop: { x: 0.76, y: 0.02, width: 0.24, height: 0.45 },
-      mouthOpenCrop:  { x: 0.50, y: 0.52, width: 0.24, height: 0.45 },
-      mouthClosedCrop:{ x: 0.76, y: 0.52, width: 0.24, height: 0.45 },
-      eyesPlace: { x: 0.20, y: 0.25, width: 0.60, height: 0.22 },
-      mouthPlace: { x: 0.30, y: 0.52, width: 0.40, height: 0.18 },
-    });
+  const switchMode = (m: 'crop' | 'place') => {
+    setMode(m);
+    setActive(m === 'crop' ? 'eyesOpenCrop' : 'eyesPlace');
   };
 
   if (!parsedAssetSheetParts) return null;
 
-  const visibleKeys = mode === 'crop'
-    ? (['eyesOpenCrop', 'eyesClosedCrop', 'mouthOpenCrop', 'mouthClosedCrop'] as CropKey[])
-    : (['eyesPlace', 'mouthPlace'] as PlaceKey[]);
+  const visibleKeys: ActiveKey[] = mode === 'crop'
+    ? ['eyesOpenCrop', 'eyesClosedCrop', 'mouthOpenCrop', 'mouthClosedCrop']
+    : ['eyesPlace', 'mouthPlace'];
 
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+  const canvasProps = {
+    state, setState, mode, active, setActive,
+    sheetImg: sheetImgRef.current,
+    baseImg: baseImgRef.current,
+  };
 
-      {/* Mode tabs */}
-      <div style={{ display: 'flex', gap: '0.5rem' }}>
-        <button
-          onClick={() => { setMode('crop'); setActive('eyesOpenCrop'); }}
-          style={{
-            flex: 1,
-            padding: '0.65rem',
-            borderRadius: '10px',
-            border: `2px solid ${mode === 'crop' ? '#6366f1' : 'rgba(255,255,255,0.1)'}`,
-            background: mode === 'crop' ? 'rgba(99,102,241,0.2)' : 'rgba(255,255,255,0.04)',
-            color: '#fff',
-            cursor: 'pointer',
-            fontWeight: mode === 'crop' ? 700 : 400,
-            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.4rem',
-          }}
-        >
-          <Scissors size={16} />
-          ✂ STEP 1: 切り抜き位置を指定 (右側)
-        </button>
-        <button
-          onClick={() => { setMode('place'); setActive('eyesPlace'); }}
-          style={{
-            flex: 1,
-            padding: '0.65rem',
-            borderRadius: '10px',
-            border: `2px solid ${mode === 'place' ? '#10b981' : 'rgba(255,255,255,0.1)'}`,
-            background: mode === 'place' ? 'rgba(16,185,129,0.2)' : 'rgba(255,255,255,0.04)',
-            color: '#fff',
-            cursor: 'pointer',
-            fontWeight: mode === 'place' ? 700 : 400,
-            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.4rem',
-          }}
-        >
-          <MapPin size={16} />
-          📍 STEP 2: 貼り付け位置を指定 (左側)
-        </button>
-      </div>
-
-      {/* Part selector */}
-      <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
-        {(visibleKeys as ActiveKey[]).map(key => (
-          <button
-            key={key}
-            onClick={() => setActive(key)}
-            style={{
-              padding: '0.35rem 0.85rem',
-              borderRadius: '16px',
-              border: `2px solid ${active === key ? COLORS[key] : 'rgba(255,255,255,0.1)'}`,
-              background: active === key ? `${COLORS[key]}28` : 'rgba(255,255,255,0.04)',
-              color: active === key ? '#fff' : '#94a3b8',
-              cursor: 'pointer',
-              fontSize: '0.82rem',
-              fontWeight: active === key ? 700 : 400,
-            }}
-          >
-            {LABELS[key].replace('✂ ', '').replace('📍 ', '')}
-          </button>
-        ))}
-        <button
-          onClick={reset}
-          style={{
-            padding: '0.35rem 0.85rem',
-            borderRadius: '16px',
-            border: '1px solid rgba(255,255,255,0.1)',
-            background: 'rgba(255,255,255,0.04)',
-            color: '#94a3b8',
-            cursor: 'pointer',
-            fontSize: '0.82rem',
-            marginLeft: 'auto',
-            display: 'flex', alignItems: 'center', gap: '0.35rem',
-          }}
-        >
-          <RotateCcw size={13} />
-          リセット
-        </button>
-      </div>
-
-      {/* Canvas */}
-      <div style={{ borderRadius: '12px', overflow: 'hidden', boxShadow: '0 8px 32px rgba(0,0,0,0.5)', border: '1px solid rgba(255,255,255,0.1)' }}>
-        <canvas
-          ref={canvasRef}
-          width={700}
-          height={394}
-          onMouseDown={onPointerDown}
-          onMouseMove={onPointerMove}
-          onMouseUp={onPointerUp}
-          onMouseLeave={onPointerUp}
-          style={{ width: '100%', cursor: dragRef.current ? 'grabbing' : 'crosshair', display: 'block', userSelect: 'none' }}
-        />
-      </div>
-
-      {/* Sliders for selected box */}
+  // ─ FULLSCREEN OVERLAY ─
+  if (fullscreen) {
+    return (
       <div style={{
-        background: 'rgba(15,23,42,0.7)',
-        border: `1px solid ${COLORS[active]}44`,
-        borderRadius: '12px',
-        padding: '0.85rem',
-        display: 'grid',
-        gridTemplateColumns: '1fr 1fr',
-        gap: '0.6rem 1rem',
+        position: 'fixed', inset: 0, zIndex: 9999,
+        background: '#0f172a',
+        display: 'flex', flexDirection: 'column',
       }}>
-        <div style={{ gridColumn: '1/-1', fontSize: '0.82rem', color: COLORS[active], fontWeight: 700 }}>
-          🎚️ {LABELS[active]} — 数値微調整
-        </div>
-        {(['x', 'y', 'width', 'height'] as const).map(field => (
-          <label key={field} style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
-            <span style={{ fontSize: '0.75rem', color: '#94a3b8' }}>
-              {field === 'x' ? 'X位置' : field === 'y' ? 'Y位置' : field === 'width' ? '横幅' : '縦幅'} ({((state[active as keyof EditorState] as Box)[field] * 100).toFixed(1)}%)
-            </span>
-            <input
-              type="range"
-              min={field === 'width' || field === 'height' ? 0.02 : 0}
-              max={field === 'width' || field === 'height' ? 0.95 : 1}
-              step={0.005}
-              value={(state[active as keyof EditorState] as Box)[field]}
-              onChange={e => {
-                const v = Number(e.target.value);
-                setState(prev => ({ ...prev, [active]: { ...(prev[active as keyof EditorState] as Box), [field]: v } }));
-              }}
-              style={{ accentColor: COLORS[active], cursor: 'pointer' }}
-            />
-          </label>
-        ))}
-      </div>
+        {/* Top bar */}
+        <div style={{
+          display: 'flex', alignItems: 'center', gap: '0.5rem',
+          padding: '0.5rem 0.75rem',
+          background: 'rgba(15,23,42,0.95)',
+          borderBottom: '1px solid rgba(255,255,255,0.1)',
+          flexShrink: 0,
+        }}>
+          {/* Mode tabs */}
+          <button onClick={() => switchMode('crop')} style={{
+            padding: '0.35rem 0.8rem', borderRadius: '8px', fontSize: '0.82rem', fontWeight: 700,
+            border: `2px solid ${mode==='crop'?'#6366f1':'rgba(255,255,255,0.1)'}`,
+            background: mode==='crop'?'rgba(99,102,241,0.25)':'transparent', color:'#fff', cursor:'pointer',
+            display:'flex',alignItems:'center',gap:'0.3rem'
+          }}><Scissors size={14}/> STEP 1 切り抜き</button>
 
+          <button onClick={() => switchMode('place')} style={{
+            padding: '0.35rem 0.8rem', borderRadius: '8px', fontSize: '0.82rem', fontWeight: 700,
+            border: `2px solid ${mode==='place'?'#10b981':'rgba(255,255,255,0.1)'}`,
+            background: mode==='place'?'rgba(16,185,129,0.25)':'transparent', color:'#fff', cursor:'pointer',
+            display:'flex',alignItems:'center',gap:'0.3rem'
+          }}><MapPin size={14}/> STEP 2 貼り付け</button>
+
+          <div style={{ display:'flex', gap:'0.3rem', marginLeft:'0.5rem', flexWrap:'wrap' }}>
+            {(visibleKeys as ActiveKey[]).map(key => (
+              <button key={key} onClick={() => setActive(key)} style={{
+                padding: '0.25rem 0.65rem', borderRadius: '12px', fontSize: '0.75rem',
+                border: `2px solid ${active===key ? COLORS[key] : 'rgba(255,255,255,0.1)'}`,
+                background: active===key ? `${COLORS[key]}28` : 'transparent',
+                color: active===key ? '#fff' : '#94a3b8', cursor: 'pointer', fontWeight: active===key?700:400,
+              }}>{LABELS[key]}</button>
+            ))}
+          </div>
+
+          <div style={{ marginLeft:'auto', display:'flex', gap:'0.4rem' }}>
+            <button onClick={() => setState(DEFAULT_STATE)} style={{
+              padding:'0.35rem 0.7rem', borderRadius:'8px', border:'1px solid rgba(255,255,255,0.15)',
+              background:'rgba(255,255,255,0.07)', color:'#94a3b8', cursor:'pointer', fontSize:'0.8rem',
+              display:'flex',alignItems:'center',gap:'0.3rem'
+            }}><RotateCcw size={13}/> リセット</button>
+            <button onClick={() => setFullscreen(false)} style={{
+              padding:'0.35rem 0.7rem', borderRadius:'8px', border:'1px solid rgba(255,255,255,0.15)',
+              background:'rgba(255,255,255,0.07)', color:'#cbd5e1', cursor:'pointer', fontSize:'0.8rem',
+              display:'flex',alignItems:'center',gap:'0.3rem'
+            }}><X size={14}/> 閉じる</button>
+            <button onClick={handleConfirm} style={{
+              padding:'0.4rem 1rem', borderRadius:'8px',
+              background:'linear-gradient(135deg,#10b981,#059669)',
+              border:'none', color:'#fff', fontWeight:700, cursor:'pointer', fontSize:'0.85rem',
+              display:'flex',alignItems:'center',gap:'0.35rem',
+              boxShadow:'0 3px 12px rgba(16,185,129,0.4)'
+            }}><Check size={15}/> 確定＆開始</button>
+          </div>
+        </div>
+
+        {/* Canvas fills rest of screen */}
+        <div style={{
+          flex: 1,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          overflow: 'hidden',
+          padding: '4px',
+        }}>
+          <EditorCanvas {...canvasProps} isFullscreen />
+        </div>
+
+        {/* Bottom sliders */}
+        <div style={{
+          background: 'rgba(15,23,42,0.95)',
+          borderTop: '1px solid rgba(255,255,255,0.1)',
+          padding: '0.5rem 0.75rem',
+          display: 'grid',
+          gridTemplateColumns: '1fr 1fr 1fr 1fr',
+          gap: '0.4rem 0.75rem',
+          flexShrink: 0,
+        }}>
+          {(['x','y','width','height'] as const).map(field => (
+            <label key={field} style={{ display:'flex', flexDirection:'column', gap:'0.15rem' }}>
+              <span style={{ fontSize:'0.72rem', color:'#94a3b8' }}>
+                {field==='x'?'X位置':field==='y'?'Y位置':field==='width'?'横幅':'縦幅'} ({((state[active as keyof EditorState] as Box)[field]*100).toFixed(1)}%)
+              </span>
+              <input type="range"
+                min={field==='width'||field==='height'?0.02:0}
+                max={field==='width'||field==='height'?0.95:1}
+                step={0.005}
+                value={(state[active as keyof EditorState] as Box)[field]}
+                onChange={e => setState(prev => ({
+                  ...prev,
+                  [active]: { ...(prev[active as keyof EditorState] as Box), [field]: Number(e.target.value) }
+                }))}
+                style={{ accentColor: COLORS[active], cursor:'pointer' }}
+              />
+            </label>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  // ─ INLINE (compact) ─
+  return (
+    <div style={{ display:'flex', flexDirection:'column', gap:'0.85rem' }}>
+      {/* Open fullscreen button */}
+      <button
+        onClick={() => setFullscreen(true)}
+        style={{
+          display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.6rem',
+          padding: '0.85rem',
+          borderRadius: '12px',
+          border: '2px solid rgba(99,102,241,0.5)',
+          background: 'linear-gradient(135deg, rgba(99,102,241,0.2), rgba(168,85,247,0.2))',
+          color: '#c4b5fd',
+          fontWeight: 700,
+          fontSize: '1rem',
+          cursor: 'pointer',
+          boxShadow: '0 4px 20px rgba(99,102,241,0.25)',
+          transition: 'all 0.2s',
+        }}
+      >
+        <Maximize2 size={22} />
+        🖱️ フルスクリーンでパーツ配置エディターを開く
+      </button>
+
+      {/* Confirm button (skip editor) */}
       <button
         onClick={handleConfirm}
         style={{
           background: 'linear-gradient(135deg, #10b981, #059669)',
-          color: '#fff',
-          border: 'none',
-          padding: '0.9rem 2rem',
-          borderRadius: '14px',
-          fontWeight: 700,
-          fontSize: '1rem',
-          cursor: 'pointer',
-          display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.6rem',
-          boxShadow: '0 4px 20px rgba(16, 185, 129, 0.35)',
+          color: '#fff', border: 'none',
+          padding: '0.8rem 2rem', borderRadius: '12px',
+          fontWeight: 700, fontSize: '0.95rem', cursor: 'pointer',
+          display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem',
+          boxShadow: '0 4px 16px rgba(16,185,129,0.35)',
         }}
       >
-        <Play size={20} fill="#fff" />
-        この配置で切り抜き＆WebCam トラッキング開始 🎬
+        <Play size={18} fill="#fff" />
+        現在の配置でそのままトラッキング開始
       </button>
     </div>
   );
