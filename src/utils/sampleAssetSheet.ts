@@ -88,5 +88,6 @@ export const createSample16by9AssetSheetDataUrl = (): string => {
     </g>
   </svg>`;
 
-  return `data:image/svg+xml;utf8,${encodeURIComponent(svgString)}`;
+  const base64Svg = btoa(unescape(encodeURIComponent(svgString)));
+  return `data:image/svg+xml;base64,${base64Svg}`;
 };
