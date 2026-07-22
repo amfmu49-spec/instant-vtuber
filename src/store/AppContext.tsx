@@ -52,6 +52,10 @@ interface AppState {
   setPsdLayers: (layers: PsdLayerData[] | null) => void;
   avatarCoords: AvatarCoords | null;
   setAvatarCoords: (coords: AvatarCoords | null) => void;
+  whiteThreshold: number;
+  setWhiteThreshold: (val: number) => void;
+  removeWhiteBg: boolean;
+  setRemoveWhiteBg: (val: boolean) => void;
   sensitivity: {
     eyeClose: number;
     mouthOpen: number;
@@ -95,6 +99,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [parsedAssetSheetParts, setParsedAssetSheetParts] = useState<any | null>(null);
   const [assetSheetPrompt, setAssetSheetPrompt] = useState<string>("cute anime girl with silver hair, twin tails, blue eyes, wearing stylish sailor uniform");
 
+  const [whiteThreshold, setWhiteThreshold] = useState<number>(245);
+  const [removeWhiteBg, setRemoveWhiteBg] = useState<boolean>(true);
   const [sensitivity, setSensitivity] = useState({ eyeClose: 0.4, mouthOpen: 0.1 });
 
   const handleSetApiKey = (key: string) => {
@@ -339,6 +345,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         setPsdLayers,
         avatarCoords,
         setAvatarCoords,
+        whiteThreshold,
+        setWhiteThreshold,
+        removeWhiteBg,
+        setRemoveWhiteBg,
         sensitivity,
         setSensitivity,
         customSkinColors,

@@ -13,7 +13,11 @@ export const AssetUpload169: React.FC = () => {
     setAvatarCoords, 
     parsedAssetSheetParts,
     setOriginalGridImage,
-    setPsdLayers
+    setPsdLayers,
+    whiteThreshold,
+    setWhiteThreshold,
+    removeWhiteBg,
+    setRemoveWhiteBg
   } = useAppContext();
 
   const navigate = useNavigate();
@@ -22,7 +26,7 @@ export const AssetUpload169: React.FC = () => {
   const [previewImage, setPreviewImage] = useState<string | null>(null);
   const [statusMsg, setStatusMsg] = useState<string>('');
 
-  const processUploadedImage = (file: File) => {
+  const processUploadedImageWithThreshold = (file: File, thresh: number) => {
     setIsProcessing(true);
     setStatusMsg(geminiApiKey ? '🤖 Google Gemini AIが画像のパーツ切り抜き位置＆顔配置を自動認識中...' : '16:9 アセットシートの解体・切り出し中...');
 
@@ -34,15 +38,12 @@ export const AssetUpload169: React.FC = () => {
       const img = new Image();
       img.onload = async () => {
         try {
-          // 1. 基本の切り出しスライス
           const parsed = parse16by9AssetSheet(img);
 
-          // 2. Gemini APIキーがある場合、Gemini Multimodal AIで高精度なパーツ切り抜き＆顔配置座標を取得
           if (geminiApiKey) {
             try {
               const aiResult = await analyze16by9AssetSheetWithGemini(geminiApiKey, dataUrl);
               if (aiResult) {
-                console.log("Applying Gemini AI Vision cropping and placement coordinates!");
                 setAvatarCoords({
                   leftEye: aiResult.targetLeftEyePlacement,
                   rightEye: aiResult.targetRightEyePlacement,
@@ -51,7 +52,7 @@ export const AssetUpload169: React.FC = () => {
                   eyeState: 'open',
                   neckY: 85,
                   neckX: 50,
-                  removeWhiteBg: true
+                  removeWhiteBg: removeWhiteBg
                 });
                 setStatusMsg('✨ Google Gemini AIによるパーツ切り抜き＆顔位置の全自動認識が完了しました！');
               } else {
@@ -63,12 +64,11 @@ export const AssetUpload169: React.FC = () => {
                   eyeState: 'open',
                   neckY: 85,
                   neckX: 50,
-                  removeWhiteBg: true
+                  removeWhiteBg: removeWhiteBg
                 });
                 setStatusMsg('✅ 16:9 アセットシートの自動切り出しが完了しました！');
               }
             } catch (aiErr) {
-              console.warn("Gemini AI analysis fallback:", aiErr);
               setAvatarCoords({
                 leftEye: parsed.suggestedCoords.leftEye,
                 rightEye: parsed.suggestedCoords.rightEye,
@@ -77,7 +77,7 @@ export const AssetUpload169: React.FC = () => {
                 eyeState: 'open',
                 neckY: 85,
                 neckX: 50,
-                removeWhiteBg: true
+                removeWhiteBg: removeWhiteBg
               });
               setStatusMsg('✅ 16:9 アセットシートの自動切り出しが完了しました！');
             }
@@ -90,7 +90,7 @@ export const AssetUpload169: React.FC = () => {
               eyeState: 'open',
               neckY: 85,
               neckX: 50,
-              removeWhiteBg: true
+              removeWhiteBg: removeWhiteBg
             });
             setStatusMsg('✅ 16:9 アセットシートの自動切り出しが完了しました！');
           }
@@ -102,18 +102,18 @@ export const AssetUpload169: React.FC = () => {
 
         } catch (err: any) {
           console.error("16:9 parsing error:", err);
-          setStatusMsg('画像の解体に失敗しました。16:9のアセット画像であることを確認してください。');
+          setStatusMsg('画像の解体に失敗しました。');
         } finally {
           setIsProcessing(false);
         }
       };
-      img.onerror = () => {
-        setStatusMsg('画像の読み込みに失敗しました。');
-        setIsProcessing(false);
-      };
       img.src = dataUrl;
     };
     reader.readAsDataURL(file);
+  };
+
+  const processUploadedImage = (file: File) => {
+    processUploadedImageWithThreshold(file, whiteThreshold);
   };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -229,6 +229,58 @@ export const AssetUpload169: React.FC = () => {
           gap: '1.25rem'
         }}>
           
+          {/* 透過レベル調整スライダー */}
+          <div style={{
+            background: 'rgba(0,0,0,0.3)',
+            border: '1px solid rgba(255,255,255,0.1)',
+            borderRadius: '12px',
+            padding: '1rem',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '0.75rem'
+          }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <label style={{ fontSize: '0.9rem', color: '#cbd5e1', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                🎚️ 背景透過スライダースレッショルド (歯・口の透過防止)
+              </label>
+              <span style={{ fontSize: '0.85rem', color: '#c084fc', fontFamily: 'monospace', fontWeight: 600 }}>
+                {whiteThreshold} / 255 {whiteThreshold >= 250 ? '(低感度: 純白のみ)' : whiteThreshold <= 210 ? '(高感度: 薄白も透過)' : '(標準)'}
+              </span>
+            </div>
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+              <input
+                type="range"
+                min="180"
+                max="255"
+                step="1"
+                value={whiteThreshold}
+                onChange={(e) => {
+                  const val = Number(e.target.value);
+                  setWhiteThreshold(val);
+                  if (fileInputRef.current?.files?.[0]) {
+                    processUploadedImageWithThreshold(fileInputRef.current.files[0], val);
+                  }
+                }}
+                style={{ flex: 1, accentColor: '#a855f7', cursor: 'pointer' }}
+              />
+
+              <label style={{ fontSize: '0.85rem', color: '#e2e8f0', display: 'flex', alignItems: 'center', gap: '0.4rem', cursor: 'pointer' }}>
+                <input
+                  type="checkbox"
+                  checked={removeWhiteBg}
+                  onChange={(e) => setRemoveWhiteBg(e.target.checked)}
+                  style={{ accentColor: '#a855f7' }}
+                />
+                背景白を自動透過
+              </label>
+            </div>
+
+            <p style={{ fontSize: '0.78rem', color: '#94a3b8', margin: 0 }}>
+              💡 口の中の「白い歯」に穴が開いてしまう場合は、スライダーを右（250方向）へ動かすと歯の白さを保護したまま綺麗に透過できます。
+            </p>
+          </div>
+
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <h4 style={{ fontSize: '1.05rem', color: '#f8fafc', margin: 0, display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
               <Layers size={20} color="#a855f7" />

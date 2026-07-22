@@ -357,7 +357,8 @@ export interface Parsed16by9AssetSheet {
 
 export const autotrimCanvas = (
   sourceCanvas: HTMLCanvasElement,
-  removeWhite: boolean = true
+  removeWhite: boolean = true,
+  threshold: number = 242
 ): HTMLCanvasElement => {
   const ctx = sourceCanvas.getContext('2d');
   if (!ctx) return sourceCanvas;
@@ -367,6 +368,63 @@ export const autotrimCanvas = (
   const imgData = ctx.getImageData(0, 0, w, h);
   const data = imgData.data;
 
+  // 外枠（4辺境界）から接続されている背景の白ピクセルのみをフラッドフィル透過化
+  // 口の中の白い歯や目のハイライトなど、内部の白要素は100%保護される
+  if (removeWhite) {
+    const visited = new Uint8Array(w * h);
+    const queue: number[] = [];
+
+    const isBackgroundWhite = (idx: number) => {
+      return data[idx] >= threshold && data[idx + 1] >= threshold && data[idx + 2] >= threshold;
+    };
+
+    // 4辺の境界ピクセルを初期キューに登録
+    for (let x = 0; x < w; x++) {
+      const topIdx = (0 * w + x) * 4;
+      const botIdx = ((h - 1) * w + x) * 4;
+      if (isBackgroundWhite(topIdx)) { queue.push(x, 0); visited[0 * w + x] = 1; }
+      if (isBackgroundWhite(botIdx)) { queue.push(x, h - 1); visited[(h - 1) * w + x] = 1; }
+    }
+    for (let y = 0; y < h; y++) {
+      const leftIdx = (y * w + 0) * 4;
+      const rightIdx = (y * w + (w - 1)) * 4;
+      if (!visited[y * w + 0] && isBackgroundWhite(leftIdx)) { queue.push(0, y); visited[y * w + 0] = 1; }
+      if (!visited[y * w + (w - 1)] && isBackgroundWhite(rightIdx)) { queue.push(w - 1, y); visited[y * w + (w - 1)] = 1; }
+    }
+
+    // BFS フラッドフィル探査
+    let qHead = 0;
+    while (qHead < queue.length) {
+      const cx = queue[qHead++];
+      const cy = queue[qHead++];
+      const pIdx = (cy * w + cx) * 4;
+
+      data[pIdx + 3] = 0; // 外枠接続背景を透明化
+
+      // 4近傍探査
+      const neighbors = [
+        [cx + 1, cy], [cx - 1, cy], [cx, cy + 1], [cx, cy - 1]
+      ];
+      for (let i = 0; i < 4; i++) {
+        const nx = neighbors[i][0];
+        const ny = neighbors[i][1];
+        if (nx >= 0 && nx < w && ny >= 0 && ny < h) {
+          const nPos = ny * w + nx;
+          if (!visited[nPos]) {
+            visited[nPos] = 1;
+            const nIdx = nPos * 4;
+            if (isBackgroundWhite(nIdx)) {
+              queue.push(nx, ny);
+            }
+          }
+        }
+      }
+    }
+
+    ctx.putImageData(imgData, 0, 0);
+  }
+
+  // 有効ピクセルのバウンディングボックス検出
   let minX = w;
   let minY = h;
   let maxX = 0;
@@ -375,15 +433,9 @@ export const autotrimCanvas = (
   for (let y = 0; y < h; y++) {
     for (let x = 0; x < w; x++) {
       const idx = (y * w + x) * 4;
-      const r = data[idx];
-      const g = data[idx + 1];
-      const b = data[idx + 2];
       const a = data[idx + 3];
 
-      const isWhite = removeWhite && (r > 235 && g > 235 && b > 235);
-      const isOpaque = a > 20 && !isWhite;
-
-      if (isOpaque) {
+      if (a > 20) {
         if (x < minX) minX = x;
         if (x > maxX) maxX = x;
         if (y < minY) minY = y;
@@ -409,18 +461,6 @@ export const autotrimCanvas = (
   if (!outCtx) return sourceCanvas;
 
   outCtx.drawImage(sourceCanvas, cropX, cropY, cropW, cropH, 0, 0, cropW, cropH);
-
-  if (removeWhite) {
-    const trimmedData = outCtx.getImageData(0, 0, cropW, cropH);
-    const tData = trimmedData.data;
-    for (let i = 0; i < tData.length; i += 4) {
-      if (tData[i] > 235 && tData[i + 1] > 235 && tData[i + 2] > 235) {
-        tData[i + 3] = 0;
-      }
-    }
-    outCtx.putImageData(trimmedData, 0, 0);
-  }
-
   return outCanvas;
 };
 
