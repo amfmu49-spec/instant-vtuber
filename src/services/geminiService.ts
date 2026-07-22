@@ -288,16 +288,16 @@ export const generateVTuberAssetSheet = async (
 };
 
 export const generateFree16by9AssetSheet = async (customPrompt: string): Promise<string> => {
-  // Pollinations 用にプロンプトをワンライン化＆最適化
+  // Pollinations 用にプロンプトをワンライン化＆Pixiv/Genshin最高画質ブースターを追加
+  const qualityBoosters = "masterpiece, best quality, ultra-detailed anime illustration, 8k resolution, official art, trending on pixiv, gorgeous anime eyes and face, crisp lineart, soft shading";
+  
   const cleanPrompt = customPrompt
     .replace(/\s+/g, ' ')
     .trim();
   
-  const shortPrompt = cleanPrompt.length > 300
-    ? `16:9 VTuber asset sheet, left half blank face anime bust, right half 4 expression parts (eyes open, eyes closed, mouth open, mouth neutral), ${customPrompt.slice(0, 120)}`
-    : cleanPrompt;
+  const fullAnimePrompt = `16:9 VTuber asset sheet, left half blank face anime bust, right half organized expression parts (eyes open, eyes closed, mouth open, mouth neutral), ${cleanPrompt}, ${qualityBoosters}`;
 
-  const encodedPrompt = encodeURIComponent(shortPrompt);
+  const encodedPrompt = encodeURIComponent(fullAnimePrompt);
   const seed = Math.floor(Math.random() * 1000000);
 
   // フォールバックモデルリスト (flux-anime -> flux -> turbo)

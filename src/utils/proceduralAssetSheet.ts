@@ -1,112 +1,200 @@
 export const generateProceduralAssetSheetDataUrl = (promptText: string): string => {
   const lowerPrompt = promptText.toLowerCase();
 
-  // Extract Hair Color
-  let hairColor = '#e2e8f0'; // Default silver/light gray
-  if (lowerPrompt.includes('pink') || lowerPrompt.includes('桃') || lowerPrompt.includes('ピンク')) hairColor = '#f472b6';
-  else if (lowerPrompt.includes('black') || lowerPrompt.includes('黒')) hairColor = '#334155';
-  else if (lowerPrompt.includes('gold') || lowerPrompt.includes('yellow') || lowerPrompt.includes('金')) hairColor = '#facc15';
-  else if (lowerPrompt.includes('purple') || lowerPrompt.includes('紫')) hairColor = '#c084fc';
-  else if (lowerPrompt.includes('blue') || lowerPrompt.includes('青')) hairColor = '#60a5fa';
-  else if (lowerPrompt.includes('red') || lowerPrompt.includes('赤')) hairColor = '#f87171';
-  else if (lowerPrompt.includes('silver') || lowerPrompt.includes('銀')) hairColor = '#e2e8f0';
+  // Extract Hair Color Palette
+  let hairTop = '#f1f5f9';
+  let hairBot = '#cbd5e1';
+  let hairAccent = '#94a3b8';
 
-  // Extract Eye Color
-  let eyeColor = '#4338ca'; // Default deep blue
-  let eyeHighlight = '#818cf8';
-  if (lowerPrompt.includes('red') || lowerPrompt.includes('赤') || lowerPrompt.includes('crimson')) {
-    eyeColor = '#991b1b'; eyeHighlight = '#f87171';
-  } else if (lowerPrompt.includes('green') || lowerPrompt.includes('緑')) {
-    eyeColor = '#15803d'; eyeHighlight = '#4ade80';
-  } else if (lowerPrompt.includes('gold') || lowerPrompt.includes('yellow') || lowerPrompt.includes('金')) {
-    eyeColor = '#b45309'; eyeHighlight = '#fbbf24';
+  if (lowerPrompt.includes('pink') || lowerPrompt.includes('桃') || lowerPrompt.includes('ピンク')) {
+    hairTop = '#fbcfe8'; hairBot = '#f472b6'; hairAccent = '#db2777';
+  } else if (lowerPrompt.includes('black') || lowerPrompt.includes('黒')) {
+    hairTop = '#475569'; hairBot = '#1e293b'; hairAccent = '#0f172a';
+  } else if (lowerPrompt.includes('gold') || lowerPrompt.includes('yellow') || lowerPrompt.includes('金') || lowerPrompt.includes('ブロンド')) {
+    hairTop = '#fef08a'; hairBot = '#facc15'; hairAccent = '#ca8a04';
   } else if (lowerPrompt.includes('purple') || lowerPrompt.includes('紫')) {
-    eyeColor = '#6b21a8'; eyeHighlight = '#c084fc';
+    hairTop = '#e9d5ff'; hairBot = '#c084fc'; hairAccent = '#9333ea';
+  } else if (lowerPrompt.includes('blue') || lowerPrompt.includes('青') || lowerPrompt.includes('水')) {
+    hairTop = '#bae6fd'; hairBot = '#38bdf8'; hairAccent = '#0284c7';
+  } else if (lowerPrompt.includes('red') || lowerPrompt.includes('赤')) {
+    hairTop = '#fca5a5'; hairBot = '#f87171'; hairAccent = '#dc2626';
   }
 
-  // Extract Outfit Color & Style
-  let outfitColor = '#6366f1';
-  let accentColor = '#ec4899';
-  if (lowerPrompt.includes('gothic') || lowerPrompt.includes('black') || lowerPrompt.includes('ゴシック')) {
-    outfitColor = '#1e293b'; accentColor = '#991b1b';
+  // Extract Eye Color Palette
+  let irisTop = '#312e81';
+  let irisMid = '#4338ca';
+  let irisBot = '#818cf8';
+
+  if (lowerPrompt.includes('red') || lowerPrompt.includes('赤') || lowerPrompt.includes('crimson')) {
+    irisTop = '#450a0a'; irisMid = '#991b1b'; irisBot = '#f87171';
+  } else if (lowerPrompt.includes('green') || lowerPrompt.includes('緑')) {
+    irisTop = '#052e16'; irisMid = '#15803d'; irisBot = '#4ade80';
+  } else if (lowerPrompt.includes('gold') || lowerPrompt.includes('yellow') || lowerPrompt.includes('金')) {
+    irisTop = '#451a03'; irisMid = '#b45309'; irisBot = '#fbbf24';
+  } else if (lowerPrompt.includes('purple') || lowerPrompt.includes('紫')) {
+    irisTop = '#3b0764'; irisMid = '#7e22ce'; irisBot = '#c084fc';
+  }
+
+  // Outfit Palette
+  let outfitMain = '#4f46e5';
+  let outfitSub = '#ffffff';
+  let outfitRibbon = '#f43f5e';
+
+  if (lowerPrompt.includes('gothic') || lowerPrompt.includes('black') || lowerPrompt.includes('ゴシック') || lowerPrompt.includes('ゴス')) {
+    outfitMain = '#1e1b4b'; outfitSub = '#312e81'; outfitRibbon = '#991b1b';
   } else if (lowerPrompt.includes('miko') || lowerPrompt.includes('shrine') || lowerPrompt.includes('巫女')) {
-    outfitColor = '#dc2626'; accentColor = '#ffffff';
+    outfitMain = '#dc2626'; outfitSub = '#ffffff'; outfitRibbon = '#facc15';
   } else if (lowerPrompt.includes('cyberpunk') || lowerPrompt.includes('neon') || lowerPrompt.includes('サイバー')) {
-    outfitColor = '#0284c7'; accentColor = '#f43f5e';
+    outfitMain = '#0284c7'; outfitSub = '#0f172a'; outfitRibbon = '#ec4899';
   } else if (lowerPrompt.includes('maid') || lowerPrompt.includes('メイド')) {
-    outfitColor = '#0f172a'; accentColor = '#ffffff';
+    outfitMain = '#0f172a'; outfitSub = '#f8fafc'; outfitRibbon = '#f43f5e';
   }
 
   const hasCatEars = lowerPrompt.includes('cat') || lowerPrompt.includes('猫') || lowerPrompt.includes('ねこ') || lowerPrompt.includes('耳');
-  const hasFoxEars = lowerPrompt.includes('fox') || lowerPrompt.includes('狐');
+  const hasFoxEars = lowerPrompt.includes('fox') || lowerPrompt.includes('狐') || lowerPrompt.includes('きつね');
 
   const svgString = `<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720" viewBox="0 0 1280 720">
+    <defs>
+      <!-- Gradients -->
+      <linearGradient id="hairGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+        <stop offset="0%" stop-color="${hairTop}" />
+        <stop offset="70%" stop-color="${hairBot}" />
+        <stop offset="100%" stop-color="${hairAccent}" />
+      </linearGradient>
+
+      <linearGradient id="skinGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+        <stop offset="0%" stop-color="#fff5f0" />
+        <stop offset="100%" stop-color="#ffe4d6" />
+      </linearGradient>
+
+      <linearGradient id="irisGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+        <stop offset="0%" stop-color="${irisTop}" />
+        <stop offset="50%" stop-color="${irisMid}" />
+        <stop offset="100%" stop-color="${irisBot}" />
+      </linearGradient>
+
+      <radialGradient id="blushGrad" cx="50%" cy="50%" r="50%">
+        <stop offset="0%" stop-color="#ff9ebb" stop-opacity="0.65" />
+        <stop offset="100%" stop-color="#ff9ebb" stop-opacity="0" />
+      </radialGradient>
+
+      <filter id="softGlow" x="-20%" y="-20%" width="140%" height="140%">
+        <feGaussianBlur stdDeviation="3" result="blur" />
+        <feComposite in="SourceGraphic" in2="blur" operator="over" />
+      </filter>
+    </defs>
+
     <rect width="1280" height="720" fill="#ffffff" />
-    <line x1="640" y1="0" x2="640" y2="720" stroke="#f1f5f9" stroke-width="2" stroke-dasharray="8 8" />
+    <line x1="640" y1="0" x2="640" y2="720" stroke="#e2e8f0" stroke-width="2" stroke-dasharray="8 8" />
 
-    <!-- LEFT HALF: BLANK FACE BUST -->
+    <!-- LEFT HALF: BLANK FACE BUST (CHEST UP) -->
     <g id="left-bust">
-      <!-- Outfit -->
-      <path d="M 160 720 C 160 520, 240 480, 320 480 C 400 480, 480 520, 480 720 Z" fill="${outfitColor}" />
-      <path d="M 270 480 L 320 540 L 370 480 Z" fill="#ffffff" />
-      <polygon points="320,530 300,570 340,570" fill="${accentColor}" />
+      <!-- Back Hair (Twintails / Long Hair) -->
+      <path d="M 170 320 Q 110 500 130 680 C 180 700 230 600 220 480 Z" fill="url(#hairGrad)" />
+      <path d="M 470 320 Q 530 500 510 680 C 460 700 410 600 420 480 Z" fill="url(#hairGrad)" />
 
-      <!-- Neck -->
-      <rect x="295" y="360" width="50" height="130" fill="#ffe0d0" rx="10" />
+      <!-- Outfit (Chest up) -->
+      <path d="M 160 720 C 160 520, 240 480, 320 480 C 400 480, 480 520, 480 720 Z" fill="${outfitMain}" stroke="#1e1b4b" stroke-width="3" />
+      <path d="M 260 480 L 320 550 L 380 480 Z" fill="${outfitSub}" stroke="#1e1b4b" stroke-width="2" />
+      <polygon points="320,535 295,580 345,580" fill="${outfitRibbon}" stroke="#1e1b4b" stroke-width="2" />
+      <circle cx="320" cy="535" r="8" fill="#fbbf24" stroke="#1e1b4b" stroke-width="2" />
 
-      <!-- Back Hair -->
-      <path d="M 180 320 C 160 100, 480 100, 460 320 L 490 600 C 490 600, 430 620, 420 500 L 220 500 C 210 620, 150 600, 150 600 Z" fill="${hairColor}" opacity="0.85" />
+      <!-- Neck & Collar Shadow -->
+      <rect x="295" y="360" width="50" height="130" fill="url(#skinGrad)" rx="10" />
+      <path d="M 295 410 Q 320 435 345 410" fill="none" stroke="#f4a261" stroke-width="4" opacity="0.5" stroke-linecap="round" />
 
       <!-- Ears (Cat / Fox) -->
       ${hasCatEars || hasFoxEars ? `
-        <polygon points="210,190 170,90 260,150" fill="${hairColor}" />
-        <polygon points="215,185 185,105 250,155" fill="#ffaab8" />
-        <polygon points="430,190 470,90 380,150" fill="${hairColor}" />
-        <polygon points="425,185 455,105 390,155" fill="#ffaab8" />
+        <g stroke="#2a2038" stroke-width="3" stroke-linejoin="round">
+          <polygon points="210,190 150,70 260,140" fill="url(#hairGrad)" />
+          <polygon points="215,180 165,90 250,145" fill="#ffaab8" />
+          <polygon points="430,190 490,70 380,140" fill="url(#hairGrad)" />
+          <polygon points="425,180 475,90 390,145" fill="#ffaab8" />
+        </g>
       ` : ''}
 
-      <!-- Blank Face Base -->
-      <ellipse cx="320" cy="270" rx="110" ry="130" fill="#ffe0d0" />
-      <path d="M 210 260 Q 320 400 430 260 Z" fill="#ffe0d0" />
+      <!-- Blank Face Base (Smooth Anime Skin Contour) -->
+      <path d="M 210 240 C 210 130 430 130 430 240 C 430 350 370 410 320 410 C 270 410 210 350 210 240 Z" fill="url(#skinGrad)" stroke="#2a2038" stroke-width="3" />
 
-      <!-- Bangs -->
-      <path d="M 210 200 Q 250 280 270 230 Q 300 300 320 230 Q 350 300 370 230 Q 390 280 430 200 Q 320 120 210 200 Z" fill="${hairColor}" />
-      <ellipse cx="255" cy="300" rx="20" ry="10" fill="#ffb3ba" opacity="0.5" />
-      <ellipse cx="385" cy="300" rx="20" ry="10" fill="#ffb3ba" opacity="0.5" />
+      <!-- Hair Bangs (Multi-strand Anime Layering) -->
+      <path d="M 200 220 Q 230 310 255 240 Q 285 330 315 240 Q 345 330 375 240 Q 405 310 440 220 Q 320 100 200 220 Z" fill="url(#hairGrad)" stroke="#2a2038" stroke-width="3" stroke-linejoin="round" />
+      <path d="M 210 200 Q 320 120 430 200" fill="none" stroke="#ffffff" stroke-width="4" opacity="0.6" stroke-linecap="round" />
+
+      <!-- Blush Cheeks -->
+      <ellipse cx="255" cy="315" rx="25" ry="14" fill="url(#blushGrad)" />
+      <ellipse cx="385" cy="315" rx="25" ry="14" fill="url(#blushGrad)" />
+      
+      <!-- Subtle Nose Dot -->
+      <circle cx="320" cy="335" r="2" fill="#d97706" opacity="0.6" />
     </g>
 
-    <!-- RIGHT HALF: EXPRESSION PARTS -->
-    <!-- Eyes Open -->
-    <g transform="translate(670, 120)">
-      <ellipse cx="70" cy="60" rx="35" ry="40" fill="#1e1b4b" />
-      <ellipse cx="70" cy="60" rx="28" ry="32" fill="${eyeColor}" />
-      <circle cx="70" cy="65" r="16" fill="${eyeHighlight}" />
-      <circle cx="60" cy="45" r="10" fill="#ffffff" />
-      <path d="M 30 50 Q 70 20 110 50" fill="none" stroke="#0f172a" stroke-width="7" stroke-linecap="round" />
+    <!-- RIGHT HALF: ORGANIZED EXPRESSION PARTS (2x2 Grid) -->
 
-      <ellipse cx="190" cy="60" rx="35" ry="40" fill="#1e1b4b" />
-      <ellipse cx="190" cy="60" rx="28" ry="32" fill="${eyeColor}" />
-      <circle cx="190" cy="65" r="16" fill="${eyeHighlight}" />
-      <circle cx="180" cy="45" r="10" fill="#ffffff" />
-      <path d="M 150 50 Q 190 20 230 50" fill="none" stroke="#0f172a" stroke-width="7" stroke-linecap="round" />
+    <!-- Quadrant 1: Both Eyes Open (Top-Left of Right Half: X 640..960, Y 0..360) -->
+    <g id="eyes-open" transform="translate(670, 110)">
+      <!-- Left Eye -->
+      <g>
+        <ellipse cx="70" cy="65" rx="36" ry="44" fill="#0f172a" />
+        <ellipse cx="70" cy="65" rx="30" ry="38" fill="url(#irisGrad)" />
+        <circle cx="70" cy="72" r="16" fill="${irisBot}" />
+        <ellipse cx="60" cy="48" rx="12" ry="15" fill="#ffffff" />
+        <circle cx="82" cy="78" r="6" fill="#ffffff" />
+        <!-- Eyelash Line & Wing -->
+        <path d="M 25 55 C 35 25, 105 25, 115 55" fill="none" stroke="#1e1b4b" stroke-width="8" stroke-linecap="round" />
+        <path d="M 105 50 L 122 42" stroke="#1e1b4b" stroke-width="6" stroke-linecap="round" />
+        <path d="M 28 65 Q 70 88 112 65" fill="none" stroke="#475569" stroke-width="3" stroke-linecap="round" />
+        <!-- Eyebrow -->
+        <path d="M 30 20 Q 70 5 110 25" fill="none" stroke="${hairAccent}" stroke-width="5" stroke-linecap="round" />
+      </g>
+
+      <!-- Right Eye -->
+      <g>
+        <ellipse cx="190" cy="65" rx="36" ry="44" fill="#0f172a" />
+        <ellipse cx="190" cy="65" rx="30" ry="38" fill="url(#irisGrad)" />
+        <circle cx="190" cy="72" r="16" fill="${irisBot}" />
+        <ellipse cx="180" cy="48" rx="12" ry="15" fill="#ffffff" />
+        <circle cx="202" cy="78" r="6" fill="#ffffff" />
+        <!-- Eyelash Line & Wing -->
+        <path d="M 145 55 C 155 25, 225 25, 235 55" fill="none" stroke="#1e1b4b" stroke-width="8" stroke-linecap="round" />
+        <path d="M 225 50 L 242 42" stroke="#1e1b4b" stroke-width="6" stroke-linecap="round" />
+        <path d="M 148 65 Q 190 88 232 65" fill="none" stroke="#475569" stroke-width="3" stroke-linecap="round" />
+        <!-- Eyebrow -->
+        <path d="M 150 25 Q 190 5 230 20" fill="none" stroke="${hairAccent}" stroke-width="5" stroke-linecap="round" />
+      </g>
     </g>
 
-    <!-- Eyes Closed -->
-    <g transform="translate(990, 120)">
-      <path d="M 30 65 Q 70 30 110 65" fill="none" stroke="#0f172a" stroke-width="8" stroke-linecap="round" />
-      <path d="M 150 65 Q 190 30 230 65" fill="none" stroke="#0f172a" stroke-width="8" stroke-linecap="round" />
+    <!-- Quadrant 2: Both Eyes Closed (Top-Right of Right Half: X 960..1280, Y 0..360) -->
+    <g id="eyes-closed" transform="translate(990, 110)">
+      <!-- Left Closed Eye (^ Happy Curve) -->
+      <g>
+        <path d="M 25 65 Q 70 25 115 65" fill="none" stroke="#1e1b4b" stroke-width="9" stroke-linecap="round" />
+        <path d="M 35 70 Q 70 40 105 70" fill="none" stroke="#475569" stroke-width="4" stroke-linecap="round" />
+        <path d="M 105 60 L 122 52" stroke="#1e1b4b" stroke-width="6" stroke-linecap="round" />
+        <path d="M 30 20 Q 70 5 110 25" fill="none" stroke="${hairAccent}" stroke-width="5" stroke-linecap="round" />
+      </g>
+
+      <!-- Right Closed Eye -->
+      <g>
+        <path d="M 145 65 Q 190 25 235 65" fill="none" stroke="#1e1b4b" stroke-width="9" stroke-linecap="round" />
+        <path d="M 155 70 Q 190 40 225 70" fill="none" stroke="#475569" stroke-width="4" stroke-linecap="round" />
+        <path d="M 225 60 L 242 52" stroke="#1e1b4b" stroke-width="6" stroke-linecap="round" />
+        <path d="M 150 25 Q 190 5 230 20" fill="none" stroke="${hairAccent}" stroke-width="5" stroke-linecap="round" />
+      </g>
     </g>
 
-    <!-- Mouth Open -->
-    <g transform="translate(730, 480)">
-      <path d="M 20 20 Q 70 90 120 20 Z" fill="#991b1b" stroke="#0f172a" stroke-width="5" stroke-linejoin="round" />
-      <path d="M 35 23 Q 70 35 105 23 L 105 32 Q 70 42 35 32 Z" fill="#ffffff" />
-      <path d="M 45 60 Q 70 35 95 60 Q 70 85 45 60 Z" fill="#f43f5e" />
+    <!-- Quadrant 3: Mouth Open (Bottom-Left of Right Half: X 640..960, Y 360..720) -->
+    <g id="mouth-open" transform="translate(730, 470)">
+      <path d="M 15 20 Q 70 100 125 20 Z" fill="#881337" stroke="#1e1b4b" stroke-width="5" stroke-linejoin="round" />
+      <!-- Teeth Upper -->
+      <path d="M 30 22 Q 70 38 110 22 L 110 32 Q 70 45 30 32 Z" fill="#ffffff" />
+      <!-- Cute Pink Tongue -->
+      <path d="M 40 65 Q 70 40 100 65 Q 70 92 40 65 Z" fill="#fb7185" />
     </g>
 
-    <!-- Mouth Neutral -->
-    <g transform="translate(1050, 480)">
-      <path d="M 20 40 Q 70 48 120 40" fill="none" stroke="#0f172a" stroke-width="7" stroke-linecap="round" />
+    <!-- Quadrant 4: Mouth Neutral (Bottom-Right of Right Half: X 960..1280, Y 360..720) -->
+    <g id="mouth-neutral" transform="translate(1050, 470)">
+      <path d="M 15 45 Q 70 56 125 45" fill="none" stroke="#1e1b4b" stroke-width="8" stroke-linecap="round" />
+      <path d="M 55 52 Q 70 60 85 52" fill="none" stroke="#9f1239" stroke-width="4" stroke-linecap="round" />
     </g>
   </svg>`;
 
