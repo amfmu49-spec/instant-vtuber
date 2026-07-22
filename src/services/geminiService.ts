@@ -225,53 +225,75 @@ export const generateVTuberAssetSheet = async (
 ): Promise<string> => {
   const fullPrompt = generateVTuberAssetSheetPrompt(userPrompt);
 
-  if (useFreeMode || !apiKey) {
+  if (useFreeMode || !apiKey.trim()) {
     return generateFree16by9AssetSheet(fullPrompt);
   }
 
-  // 利用可能なImagenモデル名を動的に取得
-  const modelName = await getAvailableImagenModel(apiKey);
-  console.log(`Using Imagen model endpoint for 16:9 Asset Sheet: ${modelName}`);
+  // 利用可能なImagen 3モデル名を動的に取得
+  const modelName = await getAvailableImagenModel(apiKey.trim());
+  console.log(`Executing Google Imagen 3 API call with endpoint: ${modelName}`);
 
-  try {
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:predict?key=${apiKey}`;
-    const response = await fetch(url, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({
-        instances: [
-          {
-            prompt: fullPrompt
+  // トライするImagenモデルのエンドポイントリスト
+  const imagenModelsToTry = [
+    modelName,
+    "imagen-3.0-generate-002",
+    "imagen-3.0-generate-001",
+    "imagen-3.0-fast-generate-001"
+  ];
+
+  // 重複を除去
+  const uniqueModels = Array.from(new Set(imagenModelsToTry));
+  let lastErrorMsg = "";
+
+  for (const model of uniqueModels) {
+    try {
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:predict?key=${apiKey.trim()}`;
+      const response = await fetch(url, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          instances: [
+            {
+              prompt: fullPrompt
+            }
+          ],
+          parameters: {
+            sampleCount: 1,
+            outputMimeType: "image/png",
+            aspectRatio: "16:9"
           }
-        ],
-        parameters: {
-          sampleCount: 1,
-          outputMimeType: "image/png",
-          aspectRatio: "16:9"
+        })
+      });
+
+      if (response.ok) {
+        const result = await response.json();
+        const base64Bytes = result.predictions?.[0]?.bytesBase64Encoded;
+        if (base64Bytes) {
+          console.log(`Successfully generated 16:9 VTuber Asset Sheet with Google Imagen 3 (${model})`);
+          return `data:image/png;base64,${base64Bytes}`;
         }
-      })
-    });
-
-    if (!response.ok) {
-      const errJson = await response.json().catch(() => ({}));
-      const errMsg = errJson.error?.message || `HTTP ${response.status} エラー`;
-      // APIキーまたはImagenエラーが起きた場合はフリーモードへフォールバックを試みる
-      console.warn("Imagen API failed, attempting fallback to free mode:", errMsg);
-      return generateFree16by9AssetSheet(fullPrompt);
+      } else {
+        const errJson = await response.json().catch(() => ({}));
+        lastErrorMsg = errJson.error?.message || `HTTP ${response.status} エラー (${model})`;
+        console.warn(`Imagen API model ${model} failed:`, lastErrorMsg);
+      }
+    } catch (e: any) {
+      lastErrorMsg = e.message || "ネットワーク通信エラー";
+      console.warn(`Imagen API fetch exception for ${model}:`, e);
     }
+  }
 
-    const result = await response.json();
-    const base64Bytes = result.predictions?.[0]?.bytesBase64Encoded;
-    if (!base64Bytes) {
-      return generateFree16by9AssetSheet(fullPrompt);
-    }
-
-    return `data:image/png;base64,${base64Bytes}`;
-  } catch (error: any) {
-    console.warn("Imagen API Exception, attempting fallback to free mode:", error);
-    return generateFree16by9AssetSheet(fullPrompt);
+  // APIキーモードで明示的にGoogle APIからエラーが返ってきた場合
+  console.warn("All Google Imagen 3 API calls failed:", lastErrorMsg);
+  
+  // 無料モードへフォールバックしてユーザーの体験を保護
+  try {
+    console.log("Attempting fallback to Free AI generator...");
+    return await generateFree16by9AssetSheet(fullPrompt);
+  } catch (fallbackError: any) {
+    throw new Error(`Google Gemini API エラー: ${lastErrorMsg}\n(入力したAPIキーが有効か、Google AI StudioでImagen APIが有効化されているかご確認ください。)`);
   }
 };
 
