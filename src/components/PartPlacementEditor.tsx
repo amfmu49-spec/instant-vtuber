@@ -593,23 +593,6 @@ export const PartPlacementEditor: React.FC = () => {
 
   if (!parsedAssetSheetParts) return null;
 
-  const visibleKeys: ActiveKey[] = mode === 'crop'
-    ? (active ? [active] : [])
-    : ['eyesPlace', 'mouthPlace'];
-
-  const cropButtons: CropKey[] = ['eyesOpenCrop', 'eyesClosedCrop', 'mouthOpenCrop', 'mouthClosedCrop'];
-
-  const canvasProps = {
-    state, setState, mode, active, setActive,
-    sheetImg: sheetImgRef.current,
-    baseImg: baseImgRef.current,
-    removeWhiteBg,
-    whiteThreshold,
-    zoomScale,
-  };
-
-  const curBox = active ? (state[active as keyof EditorState] as Box) : null;
-
   const setSymmetricWidth = (newW: number) => {
     if (!active) return;
     setState(prev => {
@@ -627,6 +610,24 @@ export const PartPlacementEditor: React.FC = () => {
       const centerY = b.y + b.height / 2;
       const newY = Math.max(0, Math.min(1 - newH, centerY - newH / 2));
       return { ...prev, [active]: { ...b, y: newY, height: newH } };
+    });
+  };
+
+  const setScaleProportional = (targetWidth: number) => {
+    if (!active) return;
+    setState(prev => {
+      const b = prev[active as keyof EditorState] as Box;
+      const centerX = b.x + b.width / 2;
+      const centerY = b.y + b.height / 2;
+      const aspect = b.width / Math.max(0.001, b.height);
+
+      const newW = Math.max(0.02, Math.min(0.95, targetWidth));
+      const newH = Math.max(0.02, Math.min(0.95, newW / aspect));
+
+      const newX = Math.max(0, Math.min(1 - newW, centerX - newW / 2));
+      const newY = Math.max(0, Math.min(1 - newH, centerY - newH / 2));
+
+      return { ...prev, [active]: { x: newX, y: newY, width: newW, height: newH } };
     });
   };
 
@@ -648,6 +649,7 @@ export const PartPlacementEditor: React.FC = () => {
     });
   };
 
+  const curBox = active ? (state[active as keyof EditorState] as Box) : null;
   const curCenterX = curBox ? (curBox.x + curBox.width / 2) : 0.5;
   const curCenterY = curBox ? (curBox.y + curBox.height / 2) : 0.5;
 
@@ -822,10 +824,23 @@ export const PartPlacementEditor: React.FC = () => {
         }}>
           {active && curBox ? (
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.35rem 0.8rem' }}>
-              {/* 横幅（左右狭まる） */}
+              {/* パーツ一括拡大・縮小 (比率維持) */}
+              <label style={{ display:'flex', flexDirection:'column', gap:'0.08rem', gridColumn: '1 / -1' }}>
+                <span style={{ fontSize:'0.72rem', color: COLORS[active], fontWeight: 700 }}>
+                  🔍 パーツ一括 拡大・縮小 (比率維持): {(curBox.width * 100).toFixed(1)}%
+                </span>
+                <input type="range"
+                  min="0.02" max="0.95" step="0.005"
+                  value={curBox.width}
+                  onChange={e => setScaleProportional(Number(e.target.value))}
+                  style={{ accentColor: COLORS[active], cursor:'pointer', width: '100%' }}
+                />
+              </label>
+
+              {/* 横幅（左右） */}
               <label style={{ display:'flex', flexDirection:'column', gap:'0.08rem' }}>
-                <span style={{ fontSize:'0.7rem', color: COLORS[active], fontWeight: 600 }}>
-                  ↔ 横幅 (左右から伸縮): {(curBox.width * 100).toFixed(1)}%
+                <span style={{ fontSize:'0.68rem', color: '#cbd5e1' }}>
+                  ↔ 横幅 (左右): {(curBox.width * 100).toFixed(1)}%
                 </span>
                 <input type="range"
                   min="0.02" max="0.95" step="0.005"
@@ -835,10 +850,10 @@ export const PartPlacementEditor: React.FC = () => {
                 />
               </label>
 
-              {/* 縦幅（上下狭まる） */}
+              {/* 縦幅（上下） */}
               <label style={{ display:'flex', flexDirection:'column', gap:'0.08rem' }}>
-                <span style={{ fontSize:'0.7rem', color: COLORS[active], fontWeight: 600 }}>
-                  ↕ 縦幅 (上下から伸縮): {(curBox.height * 100).toFixed(1)}%
+                <span style={{ fontSize:'0.68rem', color: '#cbd5e1' }}>
+                  ↕ 縦幅 (上下): {(curBox.height * 100).toFixed(1)}%
                 </span>
                 <input type="range"
                   min="0.02" max="0.95" step="0.005"
@@ -850,26 +865,13 @@ export const PartPlacementEditor: React.FC = () => {
 
               {/* X位置 */}
               <label style={{ display:'flex', flexDirection:'column', gap:'0.08rem' }}>
-                <span style={{ fontSize:'0.7rem', color: '#94a3b8' }}>
+                <span style={{ fontSize:'0.68rem', color: '#94a3b8' }}>
                   X位置 (中心): {(curCenterX * 100).toFixed(1)}%
                 </span>
                 <input type="range"
                   min="0" max="1" step="0.005"
                   value={curCenterX}
                   onChange={e => setCenterX(Number(e.target.value))}
-                  style={{ accentColor: COLORS[active], cursor:'pointer', width: '100%' }}
-                />
-              </label>
-
-              {/* Y位置 */}
-              <label style={{ display:'flex', flexDirection:'column', gap:'0.08rem' }}>
-                <span style={{ fontSize:'0.7rem', color: '#94a3b8' }}>
-                  Y位置 (中心): {(curCenterY * 100).toFixed(1)}%
-                </span>
-                <input type="range"
-                  min="0" max="1" step="0.005"
-                  value={curCenterY}
-                  onChange={e => setCenterY(Number(e.target.value))}
                   style={{ accentColor: COLORS[active], cursor:'pointer', width: '100%' }}
                 />
               </label>
@@ -883,6 +885,7 @@ export const PartPlacementEditor: React.FC = () => {
       </div>
     );
   }
+
 
   return (
     <div style={{ display:'flex', flexDirection:'column', gap:'0.85rem' }}>
