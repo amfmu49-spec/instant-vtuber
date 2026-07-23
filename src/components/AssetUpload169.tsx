@@ -235,8 +235,7 @@ No additional parts.
 Only the specified layout.`;
 
   const handleOpenChatGPTWithOwnChar = () => {
-    const fullPrompt = `このプロンプトと一緒に、VTuber化したいキャラクターの画像を添付してください。\n\n${OWN_CHAR_PROMPT}`;
-    const encodedPrompt = encodeURIComponent(fullPrompt);
+    const encodedPrompt = encodeURIComponent(OWN_CHAR_PROMPT);
     window.open(`https://chatgpt.com/?q=${encodedPrompt}`, '_blank');
   };
 
@@ -370,19 +369,27 @@ Only the specified layout.`;
           自分のキャラクターを使う
         </button>
 
-        <p style={{
-          fontSize: '0.72rem', color: '#c4b5fd', margin: '0.4rem 0 0 0',
-          textAlign: 'center', opacity: 0.8
+        {/* ── 手順ガイド ── */}
+        <div style={{
+          marginTop: '0.75rem',
+          padding: '0.75rem 1rem',
+          borderRadius: '10px',
+          background: 'rgba(168, 85, 247, 0.1)',
+          border: '1px solid rgba(168, 85, 247, 0.25)',
         }}>
-          ※ ChatGPTが開いたら、使いたいキャラクターの画像を添付してください
-        </p>
-
-        <p style={{
-          fontSize: '0.75rem', color: '#6ee7b7', margin: '0.5rem 0 0 0',
-          textAlign: 'center', opacity: 0.7
-        }}>
-          生成が完了したら画像をダウンロードして下のエリアにアップロードしてください
-        </p>
+          <p style={{ fontSize: '0.82rem', fontWeight: 700, color: '#e9d5ff', margin: '0 0 0.4rem 0' }}>
+            ⚠️「自分のキャラクターを使う」手順：
+          </p>
+          <ol style={{
+            margin: 0, paddingLeft: '1.2rem',
+            fontSize: '0.78rem', color: '#c4b5fd', lineHeight: 1.8,
+          }}>
+            <li>ボタンを押すとChatGPTが開きます</li>
+            <li><strong style={{ color: '#f0abfc' }}>送信する前に</strong>、使いたいキャラクターの画像を<strong style={{ color: '#f0abfc' }}>添付（📎クリップマーク）</strong>してください</li>
+            <li>画像を添付した状態で送信すると、そのキャラのアセットシートが生成されます</li>
+            <li>完成した画像をダウンロードして下のエリアにアップロード</li>
+          </ol>
+        </div>
       </div>
 
       {/* ── Divider ── */}
