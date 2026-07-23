@@ -549,7 +549,8 @@ const splitEyeQuadrantIntoLeftAndRight = (
   };
 };
 
-export const parse16by9AssetSheet = (img: HTMLImageElement): Parsed16by9AssetSheet => {
+export const parse16by9AssetSheet = async (img: HTMLImageElement): Promise<Parsed16by9AssetSheet> => {
+  const yieldToMain = () => new Promise(resolve => setTimeout(resolve, 5));
   const fullWidth = img.width;
   const fullHeight = img.height;
 
@@ -574,6 +575,8 @@ export const parse16by9AssetSheet = (img: HTMLImageElement): Parsed16by9AssetShe
     }
     baseCtx.putImageData(imgData, 0, 0);
   }
+  
+  await yieldToMain();
 
   // クアドラント取得ヘルパー (Raw未トリミング)
   const extractRawQuadrant = (
@@ -622,6 +625,8 @@ export const parse16by9AssetSheet = (img: HTMLImageElement): Parsed16by9AssetShe
     bothEyes: { x: 0.22, y: 0.28, width: 0.56, height: 0.22 },
     mouth: { x: 0.40, y: 0.53, width: 0.20, height: 0.13 }
   };
+
+  await yieldToMain();
 
   return {
     baseBustCanvas,

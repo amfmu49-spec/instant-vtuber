@@ -65,7 +65,7 @@ export const AssetUpload169: React.FC = () => {
         // Use setTimeout to let the UI render the status message before heavy processing
         setTimeout(async () => {
           try {
-            const parsed = parse16by9AssetSheet(processImg as HTMLImageElement);
+            const parsed = await parse16by9AssetSheet(processImg as HTMLImageElement);
             // Store the sheet dataUrl so the editor can display it
             (parsed as any)._originalSheetDataUrl = processDataUrl;
 

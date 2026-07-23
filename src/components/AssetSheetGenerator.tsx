@@ -124,9 +124,9 @@ export const AssetSheetGenerator: React.FC = () => {
       }
       img.src = dataUrl;
 
-      img.onload = () => {
+      img.onload = async () => {
         try {
-          const parsed = parse16by9AssetSheet(img);
+          const parsed = await parse16by9AssetSheet(img);
           setParsedAssetSheetParts(parsed);
           setGenerationStep('✅ アセットシートの生成＆16:9Live2Dパーツ分離が完了しました！');
         } catch (e: any) {
