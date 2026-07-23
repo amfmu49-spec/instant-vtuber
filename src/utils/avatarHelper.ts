@@ -601,22 +601,16 @@ export const parse16by9AssetSheet = async (img: HTMLImageElement): Promise<Parse
   };
 
   // 1. 開眼クアドラント (Top-Left of Right Half: 0.0~0.5 X, 0.0~0.5 Y)
-  const rawEyesOpen = extractRawQuadrant(0.0, 0.5, 0.0, 0.5);
-  const eyesOpenCanvas = autotrimCanvas(rawEyesOpen, true);
-  const { leftEye: leftEyeOpenCanvas, rightEye: rightEyeOpenCanvas } = splitEyeQuadrantIntoLeftAndRight(rawEyesOpen);
-
+  const eyesOpenCanvas = extractRawQuadrant(0.0, 0.5, 0.0, 0.5);
+  
   // 2. 閉眼クアドラント (Top-Right of Right Half: 0.5~1.0 X, 0.0~0.5 Y)
-  const rawEyesClosed = extractRawQuadrant(0.5, 1.0, 0.0, 0.5);
-  const eyesClosedCanvas = autotrimCanvas(rawEyesClosed, true);
-  const { leftEye: leftEyeClosedCanvas, rightEye: rightEyeClosedCanvas } = splitEyeQuadrantIntoLeftAndRight(rawEyesClosed);
+  const eyesClosedCanvas = extractRawQuadrant(0.5, 1.0, 0.0, 0.5);
 
   // 3. 開口クアドラント (Bottom-Left of Right Half: 0.0~0.5 X, 0.5~1.0 Y)
-  const rawMouthOpen = extractRawQuadrant(0.0, 0.5, 0.5, 1.0);
-  const mouthOpenCanvas = autotrimCanvas(rawMouthOpen, true);
+  const mouthOpenCanvas = extractRawQuadrant(0.0, 0.5, 0.5, 1.0);
 
   // 4. 閉口クアドラント (Bottom-Right of Right Half: 0.5~1.0 X, 0.5~1.0 Y)
-  const rawMouthClosed = extractRawQuadrant(0.5, 1.0, 0.5, 1.0);
-  const mouthClosedCanvas = autotrimCanvas(rawMouthClosed, true);
+  const mouthClosedCanvas = extractRawQuadrant(0.5, 1.0, 0.5, 1.0);
 
   // 推奨顔パーツ位置座標
   const suggestedCoords = {
@@ -627,26 +621,35 @@ export const parse16by9AssetSheet = async (img: HTMLImageElement): Promise<Parse
   };
 
   await yieldToMain();
+  const baseBustDataUrl = baseBustCanvas.toDataURL();
+  await yieldToMain();
+  const eyesOpenDataUrl = eyesOpenCanvas.toDataURL();
+  await yieldToMain();
+  const eyesClosedDataUrl = eyesClosedCanvas.toDataURL();
+  await yieldToMain();
+  const mouthOpenDataUrl = mouthOpenCanvas.toDataURL();
+  await yieldToMain();
+  const mouthClosedDataUrl = mouthClosedCanvas.toDataURL();
 
   return {
     baseBustCanvas,
-    baseBustDataUrl: baseBustCanvas.toDataURL(),
+    baseBustDataUrl,
     eyesOpenCanvas,
     eyesClosedCanvas,
-    leftEyeOpenCanvas,
-    rightEyeOpenCanvas,
-    leftEyeClosedCanvas,
-    rightEyeClosedCanvas,
+    leftEyeOpenCanvas: eyesOpenCanvas,
+    rightEyeOpenCanvas: eyesOpenCanvas,
+    leftEyeClosedCanvas: eyesClosedCanvas,
+    rightEyeClosedCanvas: eyesClosedCanvas,
     mouthOpenCanvas,
     mouthClosedCanvas,
-    eyesOpenDataUrl: eyesOpenCanvas.toDataURL(),
-    eyesClosedDataUrl: eyesClosedCanvas.toDataURL(),
-    leftEyeOpenDataUrl: leftEyeOpenCanvas.toDataURL(),
-    rightEyeOpenDataUrl: rightEyeOpenCanvas.toDataURL(),
-    leftEyeClosedDataUrl: leftEyeClosedCanvas.toDataURL(),
-    rightEyeClosedDataUrl: rightEyeClosedCanvas.toDataURL(),
-    mouthOpenDataUrl: mouthOpenCanvas.toDataURL(),
-    mouthClosedDataUrl: mouthClosedCanvas.toDataURL(),
+    eyesOpenDataUrl,
+    eyesClosedDataUrl,
+    leftEyeOpenDataUrl: eyesOpenDataUrl,
+    rightEyeOpenDataUrl: eyesOpenDataUrl,
+    leftEyeClosedDataUrl: eyesClosedDataUrl,
+    rightEyeClosedDataUrl: eyesClosedDataUrl,
+    mouthOpenDataUrl,
+    mouthClosedDataUrl,
     suggestedCoords
   };
 };
