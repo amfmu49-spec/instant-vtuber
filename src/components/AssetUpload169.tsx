@@ -138,9 +138,146 @@ export const AssetUpload169: React.FC = () => {
     navigate('/main');
   };
 
+  const [vtuberDescription, setVtuberDescription] = useState<string>('');
+
+  const ASSET_SHEET_PROMPT = `A high-resolution VTuber asset sheet designed for Live2D animation, in a clean 16:9 layout on a transparent or plain white background.
+
+The canvas is divided vertically into two halves:
+
+LEFT HALF:
+A front-facing anime-style character bust (from chest up), with full hair, head, and body details.
+The face is mostly blank, but includes a simple, cleanly drawn nose (small anime-style nose).
+There are no eyes, no mouth, no eyebrows, only the nose is present.
+The face area is smooth and clean, designed as a base layer for facial parts.
+
+RIGHT HALF:
+Organized expression parts for the same character, neatly arranged and clearly separated:
+
+* Both eyes open (neutral expression)
+* Both eyes closed
+* Mouth open
+* Mouth neutral (closed, straight line)
+
+All parts must match perfectly in style, size, and alignment with the base face on the left.
+Use crisp anime-style linework, soft shading, and consistent lighting.
+
+The character should have a modern VTuber aesthetic (clean, appealing, slightly stylized, suitable for streaming avatar use).
+
+Ensure precise alignment and spacing for easy rigging in Live2D.
+No background clutter, no text, no watermark.`;
+
+  const handleOpenChatGPT = () => {
+    const fullPrompt = vtuberDescription.trim()
+      ? `${vtuberDescription.trim()}\n\n${ASSET_SHEET_PROMPT}`
+      : ASSET_SHEET_PROMPT;
+    const encodedPrompt = encodeURIComponent(fullPrompt);
+    window.open(`https://chatgpt.com/?q=${encodedPrompt}`, '_blank');
+  };
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
-      
+
+      {/* ── ChatGPT VTuber Generator Section ── */}
+      <div style={{
+        borderRadius: '16px',
+        padding: '1.5rem',
+        background: 'linear-gradient(135deg, rgba(16, 163, 127, 0.12), rgba(6, 78, 59, 0.25))',
+        border: '1px solid rgba(16, 163, 127, 0.3)',
+        boxShadow: '0 8px 32px rgba(0,0,0,0.25)',
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', marginBottom: '0.75rem' }}>
+          <div style={{
+            width: '36px', height: '36px', borderRadius: '10px',
+            background: 'linear-gradient(135deg, #10a37f, #1a7f64)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            boxShadow: '0 2px 12px rgba(16, 163, 127, 0.4)',
+            fontSize: '18px',
+          }}>🤖</div>
+          <div>
+            <h3 style={{ fontSize: '1.1rem', fontWeight: 700, color: '#f0fdf4', margin: 0 }}>
+              ChatGPT でアセット画像を生成
+            </h3>
+            <p style={{ fontSize: '0.78rem', color: '#86efac', margin: 0 }}>
+              どんなVTuberにしたいか入力して、ワンクリックでChatGPTへ
+            </p>
+          </div>
+        </div>
+
+        <textarea
+          value={vtuberDescription}
+          onChange={(e) => setVtuberDescription(e.target.value)}
+          placeholder="例: 銀髪ツインテールの猫耳メイド風VTuber、紫色の瞳で可愛い系"
+          style={{
+            width: '100%',
+            minHeight: '80px',
+            padding: '0.75rem 1rem',
+            borderRadius: '12px',
+            border: '1px solid rgba(16, 163, 127, 0.35)',
+            background: 'rgba(0, 0, 0, 0.35)',
+            color: '#f0fdf4',
+            fontSize: '0.92rem',
+            lineHeight: 1.6,
+            resize: 'vertical',
+            outline: 'none',
+            fontFamily: 'inherit',
+            boxSizing: 'border-box',
+            transition: 'border-color 0.2s ease',
+          }}
+          onFocus={(e) => { e.currentTarget.style.borderColor = 'rgba(16, 163, 127, 0.7)'; }}
+          onBlur={(e) => { e.currentTarget.style.borderColor = 'rgba(16, 163, 127, 0.35)'; }}
+        />
+
+        <button
+          onClick={handleOpenChatGPT}
+          style={{
+            marginTop: '0.75rem',
+            width: '100%',
+            padding: '0.85rem 1.5rem',
+            borderRadius: '12px',
+            border: 'none',
+            background: 'linear-gradient(135deg, #10a37f, #0d8c6d)',
+            color: '#ffffff',
+            fontSize: '1rem',
+            fontWeight: 700,
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: '0.6rem',
+            transition: 'all 0.2s ease',
+            boxShadow: '0 4px 20px rgba(16, 163, 127, 0.35)',
+          }}
+          onMouseEnter={(e) => {
+            e.currentTarget.style.transform = 'translateY(-1px)';
+            e.currentTarget.style.boxShadow = '0 6px 28px rgba(16, 163, 127, 0.5)';
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.transform = 'translateY(0)';
+            e.currentTarget.style.boxShadow = '0 4px 20px rgba(16, 163, 127, 0.35)';
+          }}
+        >
+          <span style={{ fontSize: '1.15rem' }}>🚀</span>
+          ChatGPT で作成
+        </button>
+
+        <p style={{
+          fontSize: '0.75rem', color: '#6ee7b7', margin: '0.6rem 0 0 0',
+          textAlign: 'center', opacity: 0.7
+        }}>
+          ChatGPTが開いたら画像を生成し、ダウンロードして下のエリアにアップロードしてください
+        </p>
+      </div>
+
+      {/* ── Divider ── */}
+      <div style={{
+        display: 'flex', alignItems: 'center', gap: '1rem',
+        color: '#64748b', fontSize: '0.8rem',
+      }}>
+        <div style={{ flex: 1, height: '1px', background: 'linear-gradient(to right, transparent, rgba(100,116,139,0.4), transparent)' }} />
+        <span>画像を入手したら下へアップロード</span>
+        <div style={{ flex: 1, height: '1px', background: 'linear-gradient(to right, transparent, rgba(100,116,139,0.4), transparent)' }} />
+      </div>
+
       {/* Upload Zone Header */}
       <div 
         onDragOver={(e) => e.preventDefault()}
