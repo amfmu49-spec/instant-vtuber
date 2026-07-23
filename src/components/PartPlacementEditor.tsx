@@ -133,9 +133,9 @@ const EditorCanvas: React.FC<{
     return tempMouth;
   }, [sheetImg, mode, state.mouthOpenCrop, removeWhiteBg, whiteThreshold]);
 
-  const visibleKeys: ActiveKey[] = mode === 'crop'
+  const visibleKeys = React.useMemo<ActiveKey[]>(() => mode === 'crop'
     ? (active ? [active] : [])
-    : ['eyesPlace', 'mouthPlace'];
+    : ['eyesPlace', 'mouthPlace'], [mode, active]);
 
   const draw = useCallback(() => {
     const canvas = canvasRef.current;
@@ -322,9 +322,9 @@ const EditorCanvas: React.FC<{
 
       ctx.restore(); // Restore zoom transform
     }
-  }, [state, active, mode, sheetImg, baseImg, removeWhiteBg, whiteThreshold, zoomScale, visibleKeys]);
+  }, [state, active, mode, sheetImg, baseImg, removeWhiteBg, whiteThreshold, zoomScale, visibleKeys, croppedEyesCanvas, croppedMouthCanvas]);
 
-  useEffect(() => { draw(); }, [draw]);
+  useEffect(() => { try { draw(); } catch(e) { console.error('draw error:', e); } }, [draw]);
 
   const getCoords = (e: React.MouseEvent<HTMLCanvasElement> | React.TouchEvent<HTMLCanvasElement>) => {
     const c = canvasRef.current!;
@@ -449,6 +449,7 @@ const EditorCanvas: React.FC<{
   const onTouchStart = (e: React.TouchEvent<HTMLCanvasElement>) => {
     const {cx,cy} = getCoords(e);
     const hit = hitTest(cx, cy);
+    if (!hit) return;
     setActive(hit.key);
     dragRef.current = { key: hit.key, handle: hit.handle, startMX: cx, startMY: cy,
       startBox: { ...(state[hit.key as keyof EditorState] as Box) } };
