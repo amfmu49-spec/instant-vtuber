@@ -193,6 +193,53 @@ The character should have a modern VTuber aesthetic (clean, appealing, slightly 
 Ensure precise alignment and spacing for easy rigging in Live2D.
 No background clutter, no text, no watermark.`;
 
+  const OWN_CHAR_PROMPT = `Use the provided character image as the exact reference.
+
+Create a high-resolution VTuber asset sheet designed for Live2D animation in a clean 16:9 layout on a transparent or plain white background.
+
+IMPORTANT:
+Do not redesign, restyle, reinterpret, or alter the character.
+Preserve the exact hairstyle, hair color, face shape, eyes, clothing, accessories, proportions, linework, coloring, shading, and overall art style from the reference image.
+The output must be the exact same character, not a newly generated interpretation.
+
+The canvas is divided vertically into two halves.
+
+LEFT HALF:
+A front-facing anime-style character bust (from chest up), using the exact same character from the reference.
+Keep the full hair, head, neck, clothing, and accessories unchanged.
+The face is mostly blank, but includes a simple, cleanly drawn anime-style nose.
+There are no eyes, no mouth, and no eyebrows.
+The face area is smooth and clean, designed as a base layer for Live2D facial parts.
+
+RIGHT HALF:
+Organized expression parts for the exact same character, neatly arranged in a 2×2 grid and clearly separated:
+
+• Top Left: Both eyes open (neutral expression)
+• Top Right: Both eyes closed
+• Bottom Left: Mouth open
+• Bottom Right: Mouth neutral (closed)
+
+All facial parts must match perfectly in style, size, proportions, and alignment with the base face on the left.
+The eyes must align perfectly with the empty eye area.
+The mouth must align perfectly with the empty mouth area.
+Maintain identical linework, coloring, shading, lighting, and proportions as the reference image.
+
+The character should remain identical to the reference image while being prepared as a professional Live2D asset sheet.
+
+Ensure precise alignment and spacing for easy rigging in Live2D.
+
+No background clutter.
+No text.
+No watermark.
+No additional parts.
+Only the specified layout.`;
+
+  const handleOpenChatGPTWithOwnChar = () => {
+    const fullPrompt = `このプロンプトと一緒に、VTuber化したいキャラクターの画像を添付してください。\n\n${OWN_CHAR_PROMPT}`;
+    const encodedPrompt = encodeURIComponent(fullPrompt);
+    window.open(`https://chatgpt.com/?q=${encodedPrompt}`, '_blank');
+  };
+
   const handleOpenChatGPT = () => {
     const fullPrompt = vtuberDescription.trim()
       ? `${vtuberDescription.trim()}\n\n${ASSET_SHEET_PROMPT}`
@@ -284,14 +331,57 @@ No background clutter, no text, no watermark.`;
           }}
         >
           <span style={{ fontSize: '1.15rem' }}>🚀</span>
-          ChatGPT で作成
+          ChatGPT で新規作成
+        </button>
+
+        {/* ── 自分のキャラクターを使うボタン ── */}
+        <button
+          onClick={handleOpenChatGPTWithOwnChar}
+          style={{
+            marginTop: '0.5rem',
+            width: '100%',
+            padding: '0.85rem 1.5rem',
+            borderRadius: '12px',
+            border: '2px solid rgba(168, 85, 247, 0.5)',
+            background: 'linear-gradient(135deg, rgba(168, 85, 247, 0.2), rgba(139, 92, 246, 0.15))',
+            color: '#e9d5ff',
+            fontSize: '1rem',
+            fontWeight: 700,
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: '0.6rem',
+            transition: 'all 0.2s ease',
+            boxShadow: '0 4px 20px rgba(168, 85, 247, 0.2)',
+          }}
+          onMouseEnter={(e) => {
+            e.currentTarget.style.transform = 'translateY(-1px)';
+            e.currentTarget.style.boxShadow = '0 6px 28px rgba(168, 85, 247, 0.4)';
+            e.currentTarget.style.borderColor = 'rgba(168, 85, 247, 0.8)';
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.transform = 'translateY(0)';
+            e.currentTarget.style.boxShadow = '0 4px 20px rgba(168, 85, 247, 0.2)';
+            e.currentTarget.style.borderColor = 'rgba(168, 85, 247, 0.5)';
+          }}
+        >
+          <span style={{ fontSize: '1.15rem' }}>🎨</span>
+          自分のキャラクターを使う
         </button>
 
         <p style={{
-          fontSize: '0.75rem', color: '#6ee7b7', margin: '0.6rem 0 0 0',
+          fontSize: '0.72rem', color: '#c4b5fd', margin: '0.4rem 0 0 0',
+          textAlign: 'center', opacity: 0.8
+        }}>
+          ※ ChatGPTが開いたら、使いたいキャラクターの画像を添付してください
+        </p>
+
+        <p style={{
+          fontSize: '0.75rem', color: '#6ee7b7', margin: '0.5rem 0 0 0',
           textAlign: 'center', opacity: 0.7
         }}>
-          ChatGPTが開いたら画像を生成し、ダウンロードして下のエリアにアップロードしてください
+          生成が完了したら画像をダウンロードして下のエリアにアップロードしてください
         </p>
       </div>
 
