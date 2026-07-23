@@ -372,9 +372,9 @@ export const autotrimCanvas = (
   // 口の中の白い歯や目のハイライトなど、内部の白要素は100%保護される
   if (removeWhite) {
     const visited = new Uint8Array(w * h);
-    // Use pre-allocated TypedArrays for insane performance (zero GC pauses)
-    const queueX = new Uint16Array(w * h);
-    const queueY = new Uint16Array(w * h);
+    // Use pre-allocated TypedArrays for performance (zero GC pauses)
+    const queueX = new Uint32Array(w * h);
+    const queueY = new Uint32Array(w * h);
     let qHead = 0;
     let qTail = 0;
 

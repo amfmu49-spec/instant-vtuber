@@ -38,27 +38,66 @@ export const AssetUpload169: React.FC = () => {
 
       const img = new Image();
       img.onload = async () => {
-        try {
-          const parsed = parse16by9AssetSheet(img);
-          // Store the full 16:9 sheet dataUrl so the editor can display it
-          (parsed as any)._originalSheetDataUrl = dataUrl;
+        // Downscale large images to prevent browser freeze
+        const MAX_WIDTH = 2560;
+        let processImg: HTMLImageElement | HTMLCanvasElement = img;
+        let processDataUrl = dataUrl;
 
-          if (geminiApiKey) {
-            try {
-              const aiResult = await analyze16by9AssetSheetWithGemini(geminiApiKey, dataUrl);
-              if (aiResult) {
-                setAvatarCoords({
-                  leftEye: aiResult.targetLeftEyePlacement,
-                  rightEye: aiResult.targetRightEyePlacement,
-                  mouth: aiResult.targetMouthPlacement,
-                  mouthState: 'closed',
-                  eyeState: 'open',
-                  neckY: 85,
-                  neckX: 50,
-                  removeWhiteBg: removeWhiteBg
-                });
-                setStatusMsg('✨ Google Gemini AIによるパーツ切り抜き＆顔位置の全自動認識が完了しました！');
-              } else {
+        if (img.naturalWidth > MAX_WIDTH) {
+          const scale = MAX_WIDTH / img.naturalWidth;
+          const newW = MAX_WIDTH;
+          const newH = Math.round(img.naturalHeight * scale);
+          const downCanvas = document.createElement('canvas');
+          downCanvas.width = newW;
+          downCanvas.height = newH;
+          const dCtx = downCanvas.getContext('2d');
+          if (dCtx) {
+            dCtx.drawImage(img, 0, 0, newW, newH);
+          }
+          processDataUrl = downCanvas.toDataURL('image/png');
+          // Create an HTMLImageElement from the downscaled canvas
+          const downImg = new Image();
+          downImg.src = processDataUrl;
+          await new Promise<void>(resolve => { downImg.onload = () => resolve(); });
+          processImg = downImg;
+        }
+
+        // Use setTimeout to let the UI render the status message before heavy processing
+        setTimeout(async () => {
+          try {
+            const parsed = parse16by9AssetSheet(processImg as HTMLImageElement);
+            // Store the sheet dataUrl so the editor can display it
+            (parsed as any)._originalSheetDataUrl = processDataUrl;
+
+            if (geminiApiKey) {
+              try {
+                const aiResult = await analyze16by9AssetSheetWithGemini(geminiApiKey, processDataUrl);
+                if (aiResult) {
+                  setAvatarCoords({
+                    leftEye: aiResult.targetLeftEyePlacement,
+                    rightEye: aiResult.targetRightEyePlacement,
+                    mouth: aiResult.targetMouthPlacement,
+                    mouthState: 'closed',
+                    eyeState: 'open',
+                    neckY: 85,
+                    neckX: 50,
+                    removeWhiteBg: removeWhiteBg
+                  });
+                  setStatusMsg('✨ Google Gemini AIによるパーツ切り抜き＆顔位置の全自動認識が完了しました！');
+                } else {
+                  setAvatarCoords({
+                    leftEye: parsed.suggestedCoords.leftEye,
+                    rightEye: parsed.suggestedCoords.rightEye,
+                    mouth: parsed.suggestedCoords.mouth,
+                    mouthState: 'closed',
+                    eyeState: 'open',
+                    neckY: 85,
+                    neckX: 50,
+                    removeWhiteBg: removeWhiteBg
+                  });
+                  setStatusMsg('✅ 16:9 アセットシートの自動切り出しが完了しました！');
+                }
+              } catch (aiErr) {
                 setAvatarCoords({
                   leftEye: parsed.suggestedCoords.leftEye,
                   rightEye: parsed.suggestedCoords.rightEye,
@@ -71,7 +110,7 @@ export const AssetUpload169: React.FC = () => {
                 });
                 setStatusMsg('✅ 16:9 アセットシートの自動切り出しが完了しました！');
               }
-            } catch (aiErr) {
+            } else {
               setAvatarCoords({
                 leftEye: parsed.suggestedCoords.leftEye,
                 rightEye: parsed.suggestedCoords.rightEye,
@@ -84,31 +123,19 @@ export const AssetUpload169: React.FC = () => {
               });
               setStatusMsg('✅ 16:9 アセットシートの自動切り出しが完了しました！');
             }
-          } else {
-            setAvatarCoords({
-              leftEye: parsed.suggestedCoords.leftEye,
-              rightEye: parsed.suggestedCoords.rightEye,
-              mouth: parsed.suggestedCoords.mouth,
-              mouthState: 'closed',
-              eyeState: 'open',
-              neckY: 85,
-              neckX: 50,
-              removeWhiteBg: removeWhiteBg
-            });
-            setStatusMsg('✅ 16:9 アセットシートの自動切り出しが完了しました！');
+
+            setParsedAssetSheetParts(parsed);
+            setBaseImage(parsed.baseBustDataUrl);
+            setOriginalGridImage(null);
+            setPsdLayers(null);
+
+          } catch (err: any) {
+            console.error("16:9 parsing error:", err);
+            setStatusMsg('画像の解体に失敗しました。');
+          } finally {
+            setIsProcessing(false);
           }
-
-          setParsedAssetSheetParts(parsed);
-          setBaseImage(parsed.baseBustDataUrl);
-          setOriginalGridImage(null);
-          setPsdLayers(null);
-
-        } catch (err: any) {
-          console.error("16:9 parsing error:", err);
-          setStatusMsg('画像の解体に失敗しました。');
-        } finally {
-          setIsProcessing(false);
-        }
+        }, 50); // Small delay to let the UI paint the loading message
       };
       img.src = dataUrl;
     };
