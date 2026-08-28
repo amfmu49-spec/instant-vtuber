@@ -34,13 +34,7 @@ const SettingsScreen: React.FC = () => {
   const [selectedProfile, setSelectedProfile] = useState<string>(currentProfileName || '');
   const [activeTab, setActiveTab] = useState<'upload' | 'manual' | 'generator'>('upload');
 
-  // デフォルトプロファイルが読み込まれたら自動的にメイン画面へ遷移する（1セッションに1回のみ）
-  useEffect(() => {
-    if (defaultProfileName && currentProfileName === defaultProfileName && !sessionStorage.getItem('hasAutoLoaded')) {
-      sessionStorage.setItem('hasAutoLoaded', 'true');
-      navigate('/main');
-    }
-  }, [defaultProfileName, currentProfileName, navigate]);
+
 
   const handleSaveNewProfile = () => {
     setTimeout(() => {
@@ -232,6 +226,13 @@ const SettingsScreen: React.FC = () => {
     <div className="animate-fade-in" style={{ width: '100%', maxWidth: '900px', margin: '0 auto', padding: '1rem', boxSizing: 'border-box' }}>
       {/* Direct upload content - no tabs */}
       <AssetUpload169 />
+
+      {/* Version Footer */}
+      <div style={{ textAlign: 'center', marginTop: '2rem', padding: '1rem 0', color: '#64748b', fontSize: '0.75rem', borderTop: '1px solid rgba(255,255,255,0.05)' }}>
+        <span style={{ background: 'rgba(255,255,255,0.03)', padding: '0.25rem 0.6rem', borderRadius: '12px' }}>
+          システムバージョン: <strong>v1.12.0</strong> (AI素体顔の鼻描画プロンプト対応)
+        </span>
+      </div>
     </div>
   );
 };

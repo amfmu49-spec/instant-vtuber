@@ -164,6 +164,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
     if (data.customSkinColors) setCustomSkinColorsState(data.customSkinColors);
     if (data.sensitivity) setSensitivity(data.sensitivity);
+    if (data.parsedAssetSheetParts) setParsedAssetSheetParts(data.parsedAssetSheetParts);
+    else setParsedAssetSheetParts(null);
   };
 
   useEffect(() => {
@@ -225,7 +227,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         characterImage,
         avatarCoords,
         customSkinColors,
-        sensitivity
+        sensitivity,
+        parsedAssetSheetParts
       };
       
       await set(`vtuber_profile_${targetName}`, profileData);

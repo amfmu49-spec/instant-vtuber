@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useAppContext } from '../store/AppContext';
 import { FilesetResolver, FaceLandmarker } from '@mediapipe/tasks-vision';
 import { parseGridSheet, splitImageIntoHeadAndBody } from '../utils/avatarHelper';
-import { ArrowLeft, Monitor, Settings2, X, Save } from 'lucide-react';
+import { ArrowLeft, Monitor, Settings2, X, Save, Download } from 'lucide-react';
 
 const getVowelsFromText = (text: string): ('a' | 'i' | 'u' | 'e' | 'o' | null)[] => {
   const chars = text.split('');
@@ -18,15 +18,161 @@ const getVowelsFromText = (text: string): ('a' | 'i' | 'u' | 'e' | 'o' | null)[]
   });
 };
 
+
+
 const MainScreen: React.FC = () => {
-  const { baseImage, originalGridImage, sensitivity, avatarCoords, setAvatarCoords, customSkinColors, setCustomSkinColors, saveProfile, currentProfileName, psdLayers, setPsdLayers, parsedAssetSheetParts } = useAppContext();
+  const { baseImage, setBaseImage, originalGridImage, sensitivity, setSensitivity, avatarCoords, setAvatarCoords, customSkinColors, setCustomSkinColors, saveProfile, currentProfileName, psdLayers, setPsdLayers, parsedAssetSheetParts, setParsedAssetSheetParts, whiteThreshold, setWhiteThreshold, removeWhiteBg, setRemoveWhiteBg } = useAppContext();
   const navigate = useNavigate();
+
+  const handleSaveToBrowser = () => {
+    const input = prompt('キャラクターの保存名を入力してください (例: MyAvatar):', currentProfileName || '');
+    if (input === null) return;
+    const name = input.trim();
+    if (!name) {
+      alert('保存名が入力されていません。');
+      return;
+    }
+    saveProfile(name);
+    alert(`キャラクター「${name}」をブラウザに保存しました！最初の画面からロードできます。`);
+  };
+
+  const handleExportCharacter = () => {
+    try {
+      const profileData = {
+        baseImage,
+        originalGridImage,
+        avatarCoords,
+        customSkinColors,
+        sensitivity,
+        parsedAssetSheetParts
+      };
+      const json = JSON.stringify(profileData);
+      const blob = new Blob([json], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      const charName = currentProfileName || 'character';
+      a.download = `vtuber_char_${charName}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      alert('設定の保存に失敗しました。');
+      console.error(e);
+    }
+  };
+
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [isTracking, setIsTracking] = useState(false);
   const [bgColor, setBgColor] = useState('#00ff00');
   const [showTools, setShowTools] = useState(false);
   const showToolsRef = useRef(showTools);
+  const [hasSetDefaultBg, setHasSetDefaultBg] = useState(false);
+
+  const [modelOffset, setModelOffset] = useState({ x: 0, y: 0 });
+  const [modelScale, setModelScale] = useState(1.30);
+  const [isDraggingModel, setIsDraggingModel] = useState(false);
+  const [modelDragStart, setModelDragStart] = useState({ px: 0, py: 0, ox: 0, oy: 0 });
+
+  const modelOffsetRef = useRef(modelOffset);
+  const modelScaleRef = useRef(modelScale);
+
+  useEffect(() => {
+    modelOffsetRef.current = modelOffset;
+  }, [modelOffset]);
+
+  useEffect(() => {
+    modelScaleRef.current = modelScale;
+  }, [modelScale]);
+
+  const [mouthControlSource, setMouthControlSource] = useState<'camera' | 'audio'>('camera');
+  const [audioMultiplier, setAudioMultiplier] = useState<number>(5.0);
+
+  const mouthControlSourceRef = useRef<'camera' | 'audio'>('camera');
+  const audioMultiplierRef = useRef<number>(5.0);
+
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const analyserRef = useRef<AnalyserNode | null>(null);
+  const audioStreamRef = useRef<MediaStream | null>(null);
+  const volumeRef = useRef<number>(0);
+  const animationFrameIdRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    mouthControlSourceRef.current = mouthControlSource;
+    if (mouthControlSource === 'audio') {
+      const initAudio = async () => {
+        try {
+          if (animationFrameIdRef.current) cancelAnimationFrame(animationFrameIdRef.current);
+          if (audioStreamRef.current) {
+            audioStreamRef.current.getTracks().forEach(t => t.stop());
+          }
+          if (audioContextRef.current) {
+            await audioContextRef.current.close().catch(() => {});
+          }
+
+          const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+          audioStreamRef.current = stream;
+
+          const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+          const audioCtx = new AudioContextClass();
+          audioContextRef.current = audioCtx;
+
+          const source = audioCtx.createMediaStreamSource(stream);
+          const analyser = audioCtx.createAnalyser();
+          analyser.fftSize = 512;
+          analyserRef.current = analyser;
+
+          source.connect(analyser);
+
+          const dataArray = new Uint8Array(analyser.frequencyBinCount);
+          const analyze = () => {
+            if (mouthControlSourceRef.current !== 'audio') return;
+            analyser.getByteTimeDomainData(dataArray);
+
+            let sumSquares = 0;
+            for (let i = 0; i < dataArray.length; i++) {
+              const normalized = (dataArray[i] - 128) / 128;
+              sumSquares += normalized * normalized;
+            }
+            const rms = Math.sqrt(sumSquares / dataArray.length);
+            volumeRef.current = volumeRef.current * 0.4 + rms * 0.6;
+            animationFrameIdRef.current = requestAnimationFrame(analyze);
+          };
+          analyze();
+        } catch (err) {
+          console.error("Microphone tracking init failed:", err);
+          alert("マイクの許可が得られなかったか、デバイスが使用中です。カメラ認識に戻ります。");
+          setMouthControlSource('camera');
+        }
+      };
+      initAudio();
+    } else {
+      if (animationFrameIdRef.current) {
+        cancelAnimationFrame(animationFrameIdRef.current);
+        animationFrameIdRef.current = null;
+      }
+      if (audioStreamRef.current) {
+        audioStreamRef.current.getTracks().forEach(t => t.stop());
+        audioStreamRef.current = null;
+      }
+      if (audioContextRef.current) {
+        audioContextRef.current.close().catch(() => {});
+        audioContextRef.current = null;
+      }
+      analyserRef.current = null;
+      volumeRef.current = 0;
+    }
+
+    return () => {
+      if (animationFrameIdRef.current) cancelAnimationFrame(animationFrameIdRef.current);
+      if (audioStreamRef.current) audioStreamRef.current.getTracks().forEach(t => t.stop());
+      if (audioContextRef.current) audioContextRef.current.close().catch(() => {});
+    };
+  }, [mouthControlSource]);
+
+  useEffect(() => {
+    audioMultiplierRef.current = audioMultiplier;
+  }, [audioMultiplier]);
 
   const assetSheetImagesRef = useRef<{
     eyesOpen: HTMLImageElement | null;
@@ -48,47 +194,133 @@ const MainScreen: React.FC = () => {
     mouthClosed: null
   });
 
-  useEffect(() => {
-    if (parsedAssetSheetParts) {
-      const loadImg = (url: string): Promise<HTMLImageElement | null> => {
-        if (!url) return Promise.resolve(null);
-        const img = new Image();
-        img.src = url;
-        return new Promise(r => { img.onload = () => r(img); img.onerror = () => r(null); });
+  const rekeyImages = (threshold: number, setBg: boolean = false) => {
+    if (!parsedAssetSheetParts || !parsedAssetSheetParts._originalSheetDataUrl) return;
+    const img = new Image();
+    img.onload = () => {
+      const fullWidth = img.naturalWidth || img.width;
+      const fullHeight = img.naturalHeight || img.height;
+      const halfWidth = Math.floor(fullWidth / 2);
+
+      if (setBg) {
+        try {
+          const tempCanvas = document.createElement('canvas');
+          tempCanvas.width = 1;
+          tempCanvas.height = 1;
+          const tempCtx = tempCanvas.getContext('2d');
+          if (tempCtx) {
+            tempCtx.drawImage(img, 0, 0, 1, 1, 0, 0, 1, 1);
+            const p = tempCtx.getImageData(0, 0, 1, 1).data;
+            if (p[3] > 0) {
+              const hex = "#" + ((1 << 24) + (p[0] << 16) + (p[1] << 8) + p[2]).toString(16).slice(1);
+              setBgColor(hex);
+            } else {
+              setBgColor('#ffffff');
+            }
+          }
+        } catch (e) {
+          console.error("Failed to sample original background color:", e);
+        }
+      }
+
+      const baseCanvas = document.createElement('canvas');
+      baseCanvas.width = halfWidth;
+      baseCanvas.height = fullHeight;
+      const baseCtx = baseCanvas.getContext('2d');
+      if (baseCtx) {
+        baseCtx.drawImage(img, 0, 0, halfWidth, fullHeight, 0, 0, halfWidth, fullHeight);
+        if (removeWhiteBg) {
+          const imgData = baseCtx.getImageData(0, 0, halfWidth, fullHeight);
+          const data = imgData.data;
+          for (let i = 0; i < data.length; i += 4) {
+            if (data[i] >= threshold && data[i + 1] >= threshold && data[i + 2] >= threshold) {
+              data[i + 3] = 0;
+            }
+          }
+          baseCtx.putImageData(imgData, 0, 0);
+        }
+      }
+      baseFaceCanvasRef.current = baseCanvas;
+
+      const extractKeyedQuadrant = (
+        cropBox: { x: number, y: number, width: number, height: number } | null,
+        defaultRelMinX: number,
+        defaultRelMaxX: number,
+        defaultRelMinY: number,
+        defaultRelMaxY: number
+      ): HTMLImageElement => {
+        let qX, qY, qW, qH;
+        if (cropBox) {
+          qX = halfWidth + Math.floor(cropBox.x * halfWidth);
+          qY = Math.floor(cropBox.y * fullHeight);
+          qW = Math.max(1, Math.floor(cropBox.width * halfWidth));
+          qH = Math.max(1, Math.floor(cropBox.height * fullHeight));
+        } else {
+          qX = halfWidth + Math.floor(defaultRelMinX * halfWidth);
+          qY = Math.floor(defaultRelMinY * fullHeight);
+          qW = Math.max(1, Math.floor((defaultRelMaxX - defaultRelMinX) * halfWidth));
+          qH = Math.max(1, Math.floor((defaultRelMaxY - defaultRelMinY) * fullHeight));
+        }
+
+        const tempCanvas = document.createElement('canvas');
+        tempCanvas.width = qW;
+        tempCanvas.height = qH;
+        const tempCtx = tempCanvas.getContext('2d');
+        if (tempCtx) {
+          tempCtx.drawImage(img, qX, qY, qW, qH, 0, 0, qW, qH);
+          if (removeWhiteBg) {
+            const imgData = tempCtx.getImageData(0, 0, qW, qH);
+            const data = imgData.data;
+            for (let i = 0; i < data.length; i += 4) {
+              if (data[i] >= threshold && data[i + 1] >= threshold && data[i + 2] >= threshold) {
+                data[i + 3] = 0;
+              }
+            }
+            tempCtx.putImageData(imgData, 0, 0);
+          }
+        }
+        const outImg = new Image();
+        outImg.src = tempCanvas.toDataURL();
+        return outImg;
       };
 
-      Promise.all([
-        loadImg(parsedAssetSheetParts.eyesOpenDataUrl),
-        loadImg(parsedAssetSheetParts.eyesClosedDataUrl),
-        loadImg(parsedAssetSheetParts.leftEyeOpenDataUrl || parsedAssetSheetParts.eyesOpenDataUrl),
-        loadImg(parsedAssetSheetParts.rightEyeOpenDataUrl || parsedAssetSheetParts.eyesOpenDataUrl),
-        loadImg(parsedAssetSheetParts.leftEyeClosedDataUrl || parsedAssetSheetParts.eyesClosedDataUrl),
-        loadImg(parsedAssetSheetParts.rightEyeClosedDataUrl || parsedAssetSheetParts.eyesClosedDataUrl),
-        loadImg(parsedAssetSheetParts.mouthOpenDataUrl),
-        loadImg(parsedAssetSheetParts.mouthClosedDataUrl)
-      ]).then(([eo, ec, leo, reo, lec, rec, mo, mc]) => {
-        assetSheetImagesRef.current = {
-          eyesOpen: eo,
-          eyesClosed: ec,
-          leftEyeOpen: leo,
-          rightEyeOpen: reo,
-          leftEyeClosed: lec,
-          rightEyeClosed: rec,
-          mouthOpen: mo,
-          mouthClosed: mc
-        };
-      });
+      const eyesOpen = extractKeyedQuadrant(
+        parsedAssetSheetParts.eyesOpenCrop || null,
+        0.0, 0.5, 0.0, 0.5
+      );
+      const eyesClosed = extractKeyedQuadrant(
+        parsedAssetSheetParts.eyesClosedCrop || null,
+        0.5, 1.0, 0.0, 0.5
+      );
+      const mouthOpen = extractKeyedQuadrant(
+        parsedAssetSheetParts.mouthOpenCrop || null,
+        0.0, 0.5, 0.5, 1.0
+      );
+      const mouthClosed = extractKeyedQuadrant(
+        parsedAssetSheetParts.mouthClosedCrop || null,
+        0.5, 1.0, 0.5, 1.0
+      );
+
+      eyesOpen.onload = () => { assetSheetImagesRef.current.eyesOpen = eyesOpen; };
+      eyesClosed.onload = () => { assetSheetImagesRef.current.eyesClosed = eyesClosed; };
+      mouthOpen.onload = () => { assetSheetImagesRef.current.mouthOpen = mouthOpen; };
+      mouthClosed.onload = () => { assetSheetImagesRef.current.mouthClosed = mouthClosed; };
+
+      assetSheetImagesRef.current.leftEyeOpen = eyesOpen;
+      assetSheetImagesRef.current.rightEyeOpen = eyesOpen;
+      assetSheetImagesRef.current.leftEyeClosed = eyesClosed;
+      assetSheetImagesRef.current.rightEyeClosed = eyesClosed;
+
+    };
+    img.src = parsedAssetSheetParts._originalSheetDataUrl;
+  };
+
+  useEffect(() => {
+    if (parsedAssetSheetParts) {
+      rekeyImages(whiteThreshold, !hasSetDefaultBg);
+      setHasSetDefaultBg(true);
     } else {
-      assetSheetImagesRef.current = {
-        eyesOpen: null,
-        eyesClosed: null,
-        leftEyeOpen: null,
-        rightEyeOpen: null,
-        leftEyeClosed: null,
-        rightEyeClosed: null,
-        mouthOpen: null,
-        mouthClosed: null
-      };
+      assetSheetImagesRef.current = {};
     }
   }, [parsedAssetSheetParts]);
   
@@ -231,9 +463,9 @@ const MainScreen: React.FC = () => {
       if (!avatarCoords.leftEye || !avatarCoords.rightEye || !avatarCoords.mouth) {
         setAvatarCoords({
           ...avatarCoords,
-          leftEye: avatarCoords.leftEye || { x: 0.35, y: 0.45, width: 0.1, height: 0.08 },
-          rightEye: avatarCoords.rightEye || { x: 0.65, y: 0.45, width: 0.1, height: 0.08 },
-          mouth: avatarCoords.mouth || { x: 0.5, y: 0.65, width: 0.12, height: 0.08 }
+          leftEye: avatarCoords.leftEye || { x: 0.35, y: 0.45, width: 0.05, height: 0.04 },
+          rightEye: avatarCoords.rightEye || { x: 0.65, y: 0.45, width: 0.05, height: 0.04 },
+          mouth: avatarCoords.mouth || { x: 0.5, y: 0.65, width: 0.06, height: 0.04 }
         });
       }
     }
@@ -475,6 +707,15 @@ const MainScreen: React.FC = () => {
       }
       return;
     }
+
+    // Drag model if not editing coordinates
+    if (!showTools || !selectedPart) {
+      e.preventDefault();
+      e.currentTarget.setPointerCapture(e.pointerId);
+      setIsDraggingModel(true);
+      setModelDragStart({ px: e.clientX, py: e.clientY, ox: modelOffset.x, oy: modelOffset.y });
+      return;
+    }
   };
 
   const handlePointerMove = (e: React.PointerEvent<HTMLCanvasElement>) => {
@@ -483,6 +724,15 @@ const MainScreen: React.FC = () => {
       updateLoupe(e.clientX, e.clientY);
       return;
     }
+
+    if (isDraggingModel) {
+      e.preventDefault();
+      const dx = e.clientX - modelDragStart.px;
+      const dy = e.clientY - modelDragStart.py;
+      setModelOffset({ x: modelDragStart.ox + dx, y: modelDragStart.oy + dy });
+      return;
+    }
+
     if (!isDragging || !selectedPart || !handleDragStart || !avatarCoords) return;
     
     e.preventDefault();
@@ -519,6 +769,7 @@ const MainScreen: React.FC = () => {
     isDraggingRef.current = false;
     setDragScreenPos(null);
     setHandleDragStart(null);
+    setIsDraggingModel(false);
   };
 
   // Loupe: sample canvas pixel and update loupe canvas
@@ -562,7 +813,8 @@ const MainScreen: React.FC = () => {
     const ctx = canvas?.getContext('2d');
     const img = new Image();
     img.src = baseImage;
-    img.onload = () => {
+    const setupBaseCanvas = () => {
+      if (!img.width || !img.height) return;
       const isGrid = !!originalGridImage;
       const targetW = isGrid ? img.width / 3 : img.width;
       const targetH = isGrid ? img.height / 3 : img.height;
@@ -581,6 +833,11 @@ const MainScreen: React.FC = () => {
       drawBaseImageOnly();
     };
 
+    img.onload = setupBaseCanvas;
+    if (img.complete) {
+      setupBaseCanvas();
+    }
+
     let smoothedAngle = 0;
     let smoothedX = 0;
     let smoothedY = 0;
@@ -590,11 +847,26 @@ const MainScreen: React.FC = () => {
     let currentTargetX = 0;
     let currentTargetY = 0;
 
-    const drawBaseImageOnly = () => {
+    let mouseTargetX = 0;
+    let mouseTargetY = 0;
+    let mouseTargetAngle = 0;
+
+    const handlePointerMoveTrack = (e: PointerEvent) => {
+      const winW = window.innerWidth || 1000;
+      const winH = window.innerHeight || 800;
+      const normX = (e.clientX / winW) - 0.5;
+      const normY = (e.clientY / winH) - 0.5;
+      mouseTargetX = -normX * 80;
+      mouseTargetY = normY * 60;
+      mouseTargetAngle = normX * 0.12;
+    };
+    window.addEventListener('pointermove', handlePointerMoveTrack);
+
+    function drawBaseImageOnly() {
       if (!canvas || !ctx) return;
       const isGrid = !!originalGridImage;
-      const targetW = isGrid ? img.width / 3 : img.width;
-      const targetH = isGrid ? img.height / 3 : img.height;
+      const targetW = isGrid ? (img.naturalWidth || img.width) / 3 : (img.naturalWidth || img.width || 800);
+      const targetH = isGrid ? (img.naturalHeight || img.height) / 3 : (img.naturalHeight || img.height || 800);
       if (canvas.width !== targetW || canvas.height !== targetH) {
         canvas.width = targetW;
         canvas.height = targetH;
@@ -634,17 +906,34 @@ const MainScreen: React.FC = () => {
       } else {
         ctx.drawImage(baseFaceCanvasRef.current || img, 0, 0, canvas.width, canvas.height);
       }
-      
-      try {
-        const pixel = ctx.getImageData(0, 0, 1, 1).data;
-        if (pixel[3] > 0) {
-          const hex = "#" + ((1 << 24) + (pixel[0] << 16) + (pixel[1] << 8) + pixel[2]).toString(16).slice(1).padStart(6, '0');
-          setBgColor(hex);
-        }
-      } catch (e) {}
     };
 
 
+
+    async function startCamera() {
+      if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+        try {
+          stream = await navigator.mediaDevices.getUserMedia({
+            video: { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: 'user' }
+          });
+          if (videoElement) {
+            videoElement.srcObject = stream;
+            await videoElement.play().catch(() => {});
+          }
+        } catch (camErr) {
+          console.warn('Ideal camera constraints failed, trying basic video constraint:', camErr);
+          try {
+            stream = await navigator.mediaDevices.getUserMedia({ video: true });
+            if (videoElement) {
+              videoElement.srcObject = stream;
+              await videoElement.play().catch(() => {});
+            }
+          } catch (camErr2) {
+            console.warn('Camera permission denied or unavailable:', camErr2);
+          }
+        }
+      }
+    };
 
     const initMediaPipe = async () => {
       try {
@@ -661,7 +950,7 @@ const MainScreen: React.FC = () => {
           const tempLandmarker = await FaceLandmarker.createFromOptions(vision, {
             baseOptions: {
               modelAssetPath: 'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task',
-              delegate: 'GPU'
+              delegate: 'CPU'
             },
             runningMode: 'IMAGE',
             numFaces: 4
@@ -675,8 +964,6 @@ const MainScreen: React.FC = () => {
               if (parsed) {
                 gridExpressionCanvasesRef.current = parsed;
               }
-            } else {
-              console.warn("Base face not detected in the grid image.");
             }
           } catch (err) {
             console.error("Grid image landmarker failed:", err);
@@ -688,42 +975,54 @@ const MainScreen: React.FC = () => {
         landmarker = await FaceLandmarker.createFromOptions(vision, {
           baseOptions: {
             modelAssetPath: 'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task',
-            delegate: 'GPU'
+            delegate: 'CPU'
           },
           outputFaceBlendshapes: true,
           outputFacialTransformationMatrixes: true,
           runningMode: 'VIDEO',
           numFaces: 1
         });
+      } catch (err) {
+        console.error('Error starting mediapipe', err);
+      }
+    };
 
-        if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
-          stream = await navigator.mediaDevices.getUserMedia({ video: true });
-          if (videoElement) {
-            videoElement.srcObject = stream;
-            videoElement.addEventListener('loadeddata', predictWebcam);
+    // Trigger camera request and MediaPipe init concurrently
+    startCamera();
+    initMediaPipe();
+
+    let lastVideoTime = -1;
+    let lastTimestamp = 0;
+    let currentResults: any = null;
+
+    function renderLoop() {
+      if (landmarker && videoElement && videoElement.readyState >= 2) {
+        if (videoElement.currentTime !== lastVideoTime) {
+          lastVideoTime = videoElement.currentTime;
+          const now = performance.now();
+          if (now > lastTimestamp) {
+            lastTimestamp = now;
+            try {
+              const res = landmarker.detectForVideo(videoElement, now);
+              if (res) {
+                currentResults = res;
+              }
+            } catch (e) {
+              console.error("Error in detectForVideo:", e);
+            }
           }
         }
-      } catch (err) {
-        console.error('Error starting camera/mediapipe', err);
       }
+      drawAvatar(currentResults);
+      animationFrameId = requestAnimationFrame(renderLoop);
     };
 
-    const predictWebcam = async () => {
-      if (!videoElement || !landmarker) return;
-      let startTimeMs = performance.now();
-      
-      try {
-        const results = landmarker.detectForVideo(videoElement, startTimeMs);
-        drawAvatar(results);
-      } catch (e) {
-        console.error("Error in drawAvatar:", e);
-      }
+    // Start continuous render loop immediately so avatar composites right away
+    renderLoop();
 
-      animationFrameId = requestAnimationFrame(predictWebcam);
-    };
-
-    const drawAvatar = (results: any) => {
+    function drawAvatar(results: any) {
       if (!canvas || !ctx) return;
+      if (!img || !img.complete || img.width === 0 || img.height === 0) return;
       
       const isGrid = !!originalGridImage;
       const targetW = isGrid ? img.width / 3 : img.width;
@@ -736,7 +1035,7 @@ const MainScreen: React.FC = () => {
       const cw = canvas.width;
       const ch = canvas.height;
 
-      if (results.faceLandmarks && results.faceLandmarks.length > 0) {
+      if (results?.faceLandmarks && results.faceLandmarks.length > 0) {
         setIsTracking(true);
         const landmarks = results.faceLandmarks[0];
         const leftEye = landmarks[33];
@@ -744,19 +1043,22 @@ const MainScreen: React.FC = () => {
         const nose = landmarks[1];
         
         currentTargetAngle = Math.atan2(leftEye.y - rightEye.y, Math.abs(leftEye.x - rightEye.x));
-        currentTargetX = (0.5 - nose.x) * cw * 0.05;
-        currentTargetY = (nose.y - 0.5) * ch * 0.05;
+        currentTargetX = (0.5 - nose.x) * cw * 0.45;
+        currentTargetY = (nose.y - 0.5) * ch * 0.45;
       } else {
+        const now = performance.now();
+        const breathY = Math.sin(now / 700) * 6;
+        const breathAngle = Math.sin(now / 1200) * 0.02;
+        currentTargetAngle = mouseTargetAngle + breathAngle;
+        currentTargetX = mouseTargetX;
+        currentTargetY = mouseTargetY + breathY;
         setIsTracking(false);
-        currentTargetAngle = 0;
-        currentTargetX = 0;
-        currentTargetY = 0;
       }
 
       if (!showToolsRef.current) {
-        smoothedAngle += (currentTargetAngle * 0.4 - smoothedAngle) * 0.05;
-        smoothedX += (currentTargetX - smoothedX) * 0.05;
-        smoothedY += (currentTargetY - smoothedY) * 0.05;
+        smoothedAngle += (currentTargetAngle * 1.2 - smoothedAngle) * 0.15;
+        smoothedX += (currentTargetX - smoothedX) * 0.15;
+        smoothedY += (currentTargetY - smoothedY) * 0.15;
       } else {
         // Smoothly return to neutral position when editing
         smoothedAngle += (0 - smoothedAngle) * 0.1;
@@ -770,26 +1072,30 @@ const MainScreen: React.FC = () => {
       let isEyeClosed = false;
       let isMouthOpen = false;
       let animatedJawOpen = 0;
+      let jawOpen = 0;
       let currentVowel: 'a' | 'i' | 'u' | 'e' | 'o' | null = null;
 
-      if (results.faceBlendshapes && results.faceBlendshapes.length > 0) {
+      if (results?.faceBlendshapes && results.faceBlendshapes.length > 0) {
         const blendshapes = results.faceBlendshapes[0].categories;
         const eyeBlinkLeft = blendshapes.find((b: any) => b.categoryName === 'eyeBlinkLeft')?.score || 0;
         const eyeBlinkRight = blendshapes.find((b: any) => b.categoryName === 'eyeBlinkRight')?.score || 0;
-        const jawOpen = blendshapes.find((b: any) => b.categoryName === 'jawOpen')?.score || 0;
+        jawOpen = blendshapes.find((b: any) => b.categoryName === 'jawOpen')?.score || 0;
         const mouthSmile = Math.max(blendshapes.find((b: any) => b.categoryName === 'mouthSmileLeft')?.score || 0, blendshapes.find((b: any) => b.categoryName === 'mouthSmileRight')?.score || 0);
         const mouthPucker = blendshapes.find((b: any) => b.categoryName === 'mouthPucker')?.score || 0;
         const mouthFunnel = blendshapes.find((b: any) => b.categoryName === 'mouthFunnel')?.score || 0;
         const mouthStretch = Math.max(blendshapes.find((b: any) => b.categoryName === 'mouthStretchLeft')?.score || 0, blendshapes.find((b: any) => b.categoryName === 'mouthStretchRight')?.score || 0);
         
         let lipDistance = 0;
-        if (results.faceLandmarks && results.faceLandmarks.length > 0) {
+        if (results?.faceLandmarks && results.faceLandmarks.length > 0) {
            const lm = results.faceLandmarks[0];
            lipDistance = Math.abs(lm[14].y - lm[13].y);
         }
 
-        isEyeClosed = eyeBlinkLeft > sens.eyeClose || eyeBlinkRight > sens.eyeClose;
-        isMouthOpen = jawOpen > sens.mouthOpen;
+        const eyeCloseThreshold = Math.min(sens.eyeClose || 0.3, 0.28);
+        const mouthOpenThreshold = Math.min(sens.mouthOpen || 0.1, 0.08);
+
+        isEyeClosed = eyeBlinkLeft > eyeCloseThreshold || eyeBlinkRight > eyeCloseThreshold;
+        isMouthOpen = jawOpen > mouthOpenThreshold;
         animatedJawOpen = jawOpen;
 
         if (isMouthOpen || mouthPucker > 0.1 || mouthFunnel > 0.1 || (lipDistance > 0.005 && (mouthSmile > 0.1 || mouthStretch > 0.1))) {
@@ -809,6 +1115,28 @@ const MainScreen: React.FC = () => {
            else if (jawOpen > sens.mouthOpen) {
               currentVowel = 'a';
            }
+        }
+      }
+
+      if (mouthControlSourceRef.current === 'audio') {
+        const audioVol = volumeRef.current;
+        const sensitivityVal = sens.mouthOpen !== undefined ? sens.mouthOpen : 0.10;
+        const multiplier = audioMultiplierRef.current;
+        const mappedJawOpen = Math.min(audioVol * multiplier, 1.0);
+        
+        isMouthOpen = mappedJawOpen > sensitivityVal;
+        animatedJawOpen = mappedJawOpen;
+        
+        if (isMouthOpen) {
+          if (mappedJawOpen > 0.6) {
+            currentVowel = 'a';
+          } else if (mappedJawOpen > 0.3) {
+            currentVowel = 'o';
+          } else {
+            currentVowel = 'u';
+          }
+        } else {
+          currentVowel = null;
         }
       }
 
@@ -855,6 +1183,12 @@ const MainScreen: React.FC = () => {
       }
 
       ctx.clearRect(0, 0, cw, ch);
+      ctx.save();
+      
+      // Zoom and offset model based on user interactions
+      ctx.translate(cw / 2 + modelOffsetRef.current.x, ch / 2 + modelOffsetRef.current.y);
+      ctx.scale(modelScaleRef.current, modelScaleRef.current);
+      ctx.translate(-cw / 2, -ch / 2 + ch * 0.18);
       
       const layers = psdLayersRef.current;
       let pivotY = ch * 0.65;
@@ -966,36 +1300,34 @@ const MainScreen: React.FC = () => {
         if (coords) {
           const { leftEye, rightEye, mouth } = coords;
           const eyesBox = (coords as any).eyesBox || null;
-          const pX = smoothedX * 0.4;
-          const pY = smoothedY * 0.4;
+          const maxMoveX = cw * 0.04;
+          const maxMoveY = ch * 0.04;
+          const pX = 0;
+          const pY = 0;
 
+          console.log("MainScreen DRAW:", { eyesBox, mouth, cw, ch });
           // === UNIFIED EYES BOX (both-eyes-as-one sprite) ===
           if (eyesBox) {
             const sc = partScalesRef.current.leftEye || 1;
             const x = eyesBox.x * cw;
             const y = eyesBox.y * ch;
             const w = eyesBox.width * cw * sc;
-            const h = eyesBox.height * ch * sc;
-            const ox = x + (eyesBox.width * cw - w) / 2;
-            const oy = y + (eyesBox.height * ch - h) / 2;
 
             const assetEyes = isEyeClosed
               ? assetSheetImagesRef.current.eyesClosed
               : assetSheetImagesRef.current.eyesOpen;
 
             if (assetEyes) {
+              const aspect = (assetEyes.complete && assetEyes.naturalWidth > 0)
+                ? (assetEyes.naturalWidth / assetEyes.naturalHeight)
+                : 1.0;
+              const h = w / aspect;
+              const ox = x + (eyesBox.width * cw - w) / 2;
+              const oy = y + (eyesBox.height * ch - h) / 2;
+
               ctx.save();
-              if (coords && coords.neckY !== undefined) {
-                ctx.translate(pivotX + smoothedX, pivotY + smoothedY);
-                ctx.rotate(smoothedAngle);
-                ctx.translate(-pivotX, -pivotY);
-              }
               ctx.translate(ox + w/2 + pX, oy + h/2 + pY);
-              const aAspect = assetEyes.width / assetEyes.height;
-              const bAspect = w / h;
-              let dw = w; let dh = h;
-              if (bAspect > aAspect) dw = h * aAspect; else dh = w / aAspect;
-              ctx.drawImage(assetEyes, -dw/2, -dh/2, dw, dh);
+              ctx.drawImage(assetEyes, -w/2, -h/2, w, h);
               ctx.restore();
             }
           }
@@ -1008,35 +1340,25 @@ const MainScreen: React.FC = () => {
             const x = eye.x * cw;
             const y = eye.y * ch;
             const w = eye.width * cw * sc;
-            const h = eye.height * ch * sc;
+            
+            const assetEye = isLeft
+              ? (isClosed ? assetSheetImagesRef.current.leftEyeClosed : assetSheetImagesRef.current.leftEyeOpen)
+              : (isClosed ? assetSheetImagesRef.current.rightEyeClosed : assetSheetImagesRef.current.rightEyeOpen);
+
+            const aspect = (assetEye && assetEye.complete && assetEye.naturalWidth > 0)
+              ? (assetEye.naturalWidth / assetEye.naturalHeight)
+              : (eye.width * cw) / (eye.height * ch || 1);
+            const h = w / aspect;
             const ox = x + (eye.width * cw - w) / 2;
             const oy = y + (eye.height * ch - h) / 2;
             
             const thisDragged = isDraggingRef.current && selectedPartRef.current === (isLeft ? 'leftEye' : 'rightEye');
             ctx.save();
             if (thisDragged) ctx.globalAlpha = 0.35;
-            if (coords && coords.neckY !== undefined) {
-                ctx.translate(pivotX + smoothedX, pivotY + smoothedY);
-                ctx.rotate(smoothedAngle);
-                ctx.translate(-pivotX, -pivotY);
-            }
             ctx.translate(ox + w/2 + pX, oy + h/2 + pY);
 
-            const assetEye = isLeft
-              ? (isClosed ? assetSheetImagesRef.current.leftEyeClosed : assetSheetImagesRef.current.leftEyeOpen)
-              : (isClosed ? assetSheetImagesRef.current.rightEyeClosed : assetSheetImagesRef.current.rightEyeOpen);
-
             if (assetEye) {
-              const aAspect = assetEye.width / assetEye.height;
-              const bAspect = w / h;
-              let dw = w;
-              let dh = h;
-              if (bAspect > aAspect) {
-                dw = h * aAspect;
-              } else {
-                dh = w / aAspect;
-              }
-              ctx.drawImage(assetEye, -dw/2, -dh/2, dw, dh);
+              ctx.drawImage(assetEye, -w/2, -h/2, w, h);
             } else if (selectedEyeImgRef.current) {
                 // カスタムSVGパーツを使う場合は肌色下地を先に描く
                 const skin = customColors?.[isLeft ? 'leftEye' : 'rightEye'] || sampledColorsRef.current[isLeft ? 'leftEye' : 'rightEye'];
@@ -1090,52 +1412,25 @@ const MainScreen: React.FC = () => {
              const mx = mouth.x * cw;
              const my = mouth.y * ch;
              const mw = mouth.width * cw * msc;
-             const mh = mouth.height * ch * msc;
-             const mox = mx + (mouth.width * cw - mw) / 2;
-             const moy = my + (mouth.height * ch - mh) / 2;
              
              const assetMouth = (isMouthOpen && animatedJawOpen > (sensitivityRef.current?.mouthOpen || 0.1))
                ? (assetSheetImagesRef.current.mouthOpen || assetSheetImagesRef.current.mouthClosed)
                : assetSheetImagesRef.current.mouthClosed;
 
-             if (selectedMouthImgRef.current && !assetMouth) {
-                 const skin = customColors?.mouth || sampledColorsRef.current.mouth;
-                 ctx.save();
-                 if (coords && coords.neckY !== undefined) {
-                     ctx.translate(pivotX + smoothedX, pivotY + smoothedY);
-                     ctx.rotate(smoothedAngle);
-                     ctx.translate(-pivotX, -pivotY);
-                 }
-                 ctx.translate(mox + mw/2 + pX, moy + mh/2 + pY);
-                 ctx.filter = `blur(${Math.max(6, mh * 0.25)}px)`;
-                 ctx.fillStyle = skin;
-                 ctx.beginPath();
-                 ctx.ellipse(0, 0, mw/2 + 5, mh/2 + 5, 0, 0, Math.PI * 2);
-                 ctx.fill();
-                 ctx.restore();
-             }
+             const mAspect = (assetMouth && assetMouth.complete && assetMouth.naturalWidth > 0)
+               ? (assetMouth.naturalWidth / assetMouth.naturalHeight)
+               : (mouth.width * cw) / (mouth.height * ch || 1);
+             const mh = mw / mAspect;
+             const mox = mx + (mouth.width * cw - mw) / 2;
+             const moy = my + (mouth.height * ch - mh) / 2;
 
               const mouthDragged = isDraggingRef.current && selectedPartRef.current === 'mouth';
               ctx.save();
               if (mouthDragged) ctx.globalAlpha = 0.35;
-              if (coords && coords.neckY !== undefined) {
-                  ctx.translate(pivotX + smoothedX, pivotY + smoothedY);
-                  ctx.rotate(smoothedAngle);
-                  ctx.translate(-pivotX, -pivotY);
-              }
               ctx.translate(mox + mw/2 + pX, moy + mh/2 + pY);
 
                if (assetMouth) {
-                   const aAspect = assetMouth.width / assetMouth.height;
-                   const bAspect = mw / mh;
-                   let dw = mw;
-                   let dh = mh;
-                   if (bAspect > aAspect) {
-                     dw = mh * aAspect;
-                   } else {
-                     dh = mw / aAspect;
-                   }
-                   ctx.drawImage(assetMouth, -dw/2, -dh/2, dw, dh);
+                   ctx.drawImage(assetMouth, -mw/2, -mh/2, mw, mh);
                } else if (selectedMouthImgRef.current) {
                     // カスタムSVGパーツ：閉じた状態から口を開く
                     let stretchX = 1.0;
@@ -1198,11 +1493,13 @@ const MainScreen: React.FC = () => {
                 ctx.restore();
             }
         }
-        ctx.restore();
+        ctx.restore(); // Matches the head translation ctx.save()
+        ctx.restore(); // Matches the zoom ctx.save() at the start of drawAvatar
     };
 
     initMediaPipe();
     return () => {
+      window.removeEventListener('pointermove', handlePointerMoveTrack);
       if (animationFrameId) cancelAnimationFrame(animationFrameId);
       if (stream) stream.getTracks().forEach(track => track.stop());
       if (landmarker) landmarker.close();
@@ -1219,21 +1516,67 @@ const MainScreen: React.FC = () => {
         onPointerMove={handlePointerMove}
         onPointerUp={handlePointerUp}
         onPointerCancel={handlePointerUp}
+        onWheel={(e) => {
+          const delta = e.deltaY < 0 ? 0.05 : -0.05;
+          setModelScale(prev => Math.max(0.5, Math.min(3.0, prev + delta)));
+        }}
         style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain', cursor: isPickingColor ? 'crosshair' : (selectedPart && showTools ? 'grab' : 'default'), touchAction: 'none' }}
       />
       {isPickingColor && <div style={{ position: 'absolute', top: '4rem', background: '#ef4444', color: 'white', padding: '0.5rem 1rem', borderRadius: '1rem' }}>画像から色を抽出したい場所をタップしてください</div>}
-      
       <div style={{ position: 'absolute', top: '1.5rem', left: '1.5rem', right: '1.5rem', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', pointerEvents: 'none', zIndex: 40 }}>
-        <button 
-          onClick={() => navigate('/settings')} 
-          style={{ pointerEvents: 'auto', display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.6rem 1.2rem', background: 'rgba(15, 23, 42, 0.75)', backdropFilter: 'blur(8px)', border: '1px solid rgba(255,255,255,0.15)', borderRadius: '24px', color: 'white', cursor: 'pointer', transition: 'all 0.2s', boxShadow: '0 4px 12px rgba(0, 0, 0, 0.3)' }}
-          title="設定に戻る"
-          onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(15, 23, 42, 0.9)'}
-          onMouseLeave={(e) => e.currentTarget.style.background = 'rgba(15, 23, 42, 0.75)'}
-        >
-          <ArrowLeft size={18} />
-          <span style={{ fontSize: '0.85rem', fontWeight: 500 }}>設定に戻る</span>
-        </button>
+        <div style={{ display: 'flex', gap: '0.4rem', pointerEvents: 'auto', flexWrap: 'wrap' }}>
+          <button 
+            onClick={() => {
+              navigate('/settings');
+            }} 
+            style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', padding: '0.45rem 0.85rem', background: 'linear-gradient(135deg, #4f46e5, #3b82f6)', border: 'none', borderRadius: '20px', color: 'white', cursor: 'pointer', transition: 'all 0.2s', boxShadow: '0 4px 12px rgba(79, 70, 229, 0.35)' }}
+            title="配置調整・貼り付け画面に戻る"
+            onMouseEnter={(e) => { e.currentTarget.style.transform = 'translateY(-1px)'; }}
+            onMouseLeave={(e) => { e.currentTarget.style.transform = 'translateY(0)'; }}
+          >
+            <ArrowLeft size={16} />
+            <span style={{ fontSize: '0.75rem', fontWeight: 700 }}>配置調整に戻る</span>
+          </button>
+
+          <button 
+            onClick={() => {
+              setBaseImage(null);
+              setPsdLayers(null);
+              setAvatarCoords(null);
+              setParsedAssetSheetParts(null);
+              setCustomSkinColors({ leftEye: null, rightEye: null, mouth: null });
+              navigate('/settings');
+            }} 
+            style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', padding: '0.45rem 0.85rem', background: 'rgba(15, 23, 42, 0.75)', backdropFilter: 'blur(8px)', border: '1px solid rgba(255,255,255,0.15)', borderRadius: '20px', color: '#e2e8f0', cursor: 'pointer', transition: 'all 0.2s', boxShadow: '0 4px 12px rgba(0, 0, 0, 0.3)' }}
+            title="別画像をアップロード"
+            onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(15, 23, 42, 0.9)'}
+            onMouseLeave={(e) => e.currentTarget.style.background = 'rgba(15, 23, 42, 0.75)'}
+          >
+            <span style={{ fontSize: '0.75rem', fontWeight: 500 }}>画像変更</span>
+          </button>
+
+          <button 
+            onClick={handleSaveToBrowser} 
+            style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', padding: '0.45rem 0.85rem', background: 'linear-gradient(135deg, #10b981, #059669)', border: 'none', borderRadius: '20px', color: 'white', cursor: 'pointer', transition: 'all 0.2s', boxShadow: '0 4px 12px rgba(16, 185, 129, 0.35)' }}
+            title="キャラクター設定をブラウザの保存リストに保存"
+            onMouseEnter={(e) => { e.currentTarget.style.transform = 'translateY(-1px)'; }}
+            onMouseLeave={(e) => { e.currentTarget.style.transform = 'translateY(0)'; }}
+          >
+            <Save size={16} />
+            <span style={{ fontSize: '0.75rem', fontWeight: 700 }}>ブラウザ保存</span>
+          </button>
+
+          <button 
+            onClick={handleExportCharacter} 
+            style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', padding: '0.45rem 0.85rem', background: 'rgba(15, 23, 42, 0.75)', backdropFilter: 'blur(8px)', border: '1px solid rgba(255,255,255,0.15)', borderRadius: '20px', color: '#e2e8f0', cursor: 'pointer', transition: 'all 0.2s', boxShadow: '0 4px 12px rgba(0, 0, 0, 0.3)' }}
+            title="キャラクター設定をJSONファイルで保存（PCへダウンロード）"
+            onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(15, 23, 42, 0.9)'}
+            onMouseLeave={(e) => e.currentTarget.style.background = 'rgba(15, 23, 42, 0.75)'}
+          >
+            <Download size={16} />
+            <span style={{ fontSize: '0.75rem', fontWeight: 500 }}>ファイル書き出し (.json)</span>
+          </button>
+        </div>
 
         <div style={{ pointerEvents: 'auto', display: 'flex', alignItems: 'center', gap: '0.5rem', background: 'rgba(15, 23, 42, 0.4)', backdropFilter: 'blur(8px)', border: '1px solid rgba(255,255,255,0.1)', padding: '0.375rem 0.375rem 0.375rem 1rem', borderRadius: '24px', boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.875rem', color: 'white', fontWeight: 500, letterSpacing: '0.025em' }}>
@@ -1243,9 +1586,7 @@ const MainScreen: React.FC = () => {
           <div style={{ width: '1px', height: '1.25rem', backgroundColor: 'rgba(255,255,255,0.2)', margin: '0 0.25rem' }} />
           <button 
             onClick={() => {
-              const next = !showTools;
-              setShowTools(next);
-              if (next && !selectedPart) setSelectedPart('leftEye');
+              setShowTools(!showTools);
             }} 
             style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: '36px', height: '36px', background: showTools ? 'rgba(59, 130, 246, 0.6)' : 'transparent', border: 'none', borderRadius: '50%', color: 'white', cursor: 'pointer', transition: 'all 0.2s' }}
             title="微調整"
@@ -1259,8 +1600,10 @@ const MainScreen: React.FC = () => {
 
 
 
-      {/* 選択中パーツのスケール・色調整パネル */}
-      {showTools && selectedPart && avatarCoords && avatarCoords[selectedPart] && !isDragging && (
+
+
+      {/* ⚙️ 全体設定パネル (パーツ未選択時) */}
+      {showTools && !selectedPart && !isDragging && (
         <div
           onClick={(e) => e.stopPropagation()}
           style={{
@@ -1271,7 +1614,7 @@ const MainScreen: React.FC = () => {
             width: 'calc(100% - 2rem)',
             maxWidth: '360px',
             backgroundColor: 'rgba(15,23,42,0.97)',
-            border: `1px solid ${selectedPart === 'leftEye' ? '#ef4444' : selectedPart === 'rightEye' ? '#3b82f6' : '#22c55e'}`,
+            border: '1px solid rgba(255,255,255,0.15)',
             padding: '0.75rem',
             borderRadius: '1rem',
             boxShadow: '0 -8px 30px rgba(0,0,0,0.5)',
@@ -1282,64 +1625,138 @@ const MainScreen: React.FC = () => {
             gap: '0.6rem',
           }}
         >
-          {/* パーツ切り替えタブ */}
-          <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '0.2rem' }}>
-            {(['leftEye', 'rightEye', 'mouth'] as const).map(part => (
-              <button
-                key={part}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setSelectedPart(part);
-                }}
-                style={{
-                  flex: 1,
-                  padding: '0.4rem 0',
-                  borderRadius: '0.5rem',
-                  border: 'none',
-                  background: selectedPart === part ? (part === 'leftEye' ? '#ef4444' : part === 'rightEye' ? '#3b82f6' : '#22c55e') : 'rgba(255,255,255,0.1)',
-                  color: selectedPart === part ? 'white' : '#9ca3af',
-                  fontSize: '0.75rem',
-                  fontWeight: 'bold',
-                  cursor: 'pointer',
-                  transition: 'all 0.2s',
-                }}
-              >
-                {part === 'leftEye' ? '👁 左目' : part === 'rightEye' ? '👁 右目' : '👄 口'}
-              </button>
-            ))}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span style={{ fontSize: '0.85rem', fontWeight: 'bold' }}>⚙️ 感度・位置設定</span>
+            <button onClick={() => setShowTools(false)} style={{ color: '#9ca3af', background: 'none', border: 'none', cursor: 'pointer', fontSize: '1rem' }}>✕</button>
           </div>
 
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <span style={{ fontSize: '0.7rem', color: '#9ca3af' }}>ドラッグで移動</span>
+          {/* 👄 口パクの制御方式 */}
+          <div style={{ borderTop: '1px solid rgba(255,255,255,0.1)', paddingTop: '0.5rem', marginTop: '0.2rem' }}>
+            <span style={{ fontSize: '0.7rem', color: '#9ca3af', display: 'block', marginBottom: '0.35rem', fontWeight: 'bold' }}>👄 口パクの制御方式</span>
             <div style={{ display: 'flex', gap: '0.5rem' }}>
-              <button onClick={() => {
-                 if (partsLibrary) {
-                    const category = selectedPart === 'mouth' ? partsLibrary.mouths : partsLibrary.eyes;
-                    const currentId = selectedPart === 'mouth' ? avatarCoords.selectedMouthId : avatarCoords.selectedEyeId;
-                    const others = category.filter(item => item.id !== currentId).sort(() => Math.random() - 0.5).slice(0, 3);
-                    setCandidates(others);
-                    setCandidateSelector(selectedPart);
-                 }
-              }} style={{ color: '#10b981', background: 'rgba(16,185,129,0.1)', border: '1px solid #10b981', borderRadius: '0.5rem', padding: '0.2rem 0.6rem', fontSize: '0.7rem', cursor: 'pointer' }}>
-                🔄 変更
+              <button 
+                onClick={() => setMouthControlSource('camera')} 
+                style={{ 
+                  flex: 1, 
+                  fontSize: '0.7rem', 
+                  padding: '0.35rem 0.5rem', 
+                  borderRadius: '6px', 
+                  border: 'none', 
+                  cursor: 'pointer',
+                  background: mouthControlSource === 'camera' ? 'linear-gradient(135deg, #6366f1, #a855f7)' : 'rgba(255,255,255,0.1)',
+                  color: '#fff',
+                  fontWeight: 'bold',
+                  boxShadow: mouthControlSource === 'camera' ? '0 2px 8px rgba(99, 102, 241, 0.4)' : 'none',
+                  transition: 'all 0.2s'
+                }}
+              >
+                📸 カメラ認識
               </button>
-              <button onClick={() => setSelectedPart(null)} style={{ color: '#9ca3af', background: 'none', border: 'none', cursor: 'pointer', fontSize: '1rem' }}>✕</button>
+              <button 
+                onClick={() => setMouthControlSource('audio')} 
+                style={{ 
+                  flex: 1, 
+                  fontSize: '0.7rem', 
+                  padding: '0.35rem 0.5rem', 
+                  borderRadius: '6px', 
+                  border: 'none', 
+                  cursor: 'pointer',
+                  background: mouthControlSource === 'audio' ? 'linear-gradient(135deg, #6366f1, #a855f7)' : 'rgba(255,255,255,0.1)',
+                  color: '#fff',
+                  fontWeight: 'bold',
+                  boxShadow: mouthControlSource === 'audio' ? '0 2px 8px rgba(99, 102, 241, 0.4)' : 'none',
+                  transition: 'all 0.2s'
+                }}
+              >
+                🎙️ マイク音量
+              </button>
             </div>
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <label style={{ fontSize: '0.75rem', color: '#9ca3af' }}>肌色</label>
-            <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-              <button onClick={() => { setIsPickingColor(selectedPart); setShowTools(false); }} style={{ fontSize: '0.7rem', background: '#3b82f6', color: 'white', border: 'none', borderRadius: '0.25rem', padding: '0.25rem 0.5rem', cursor: 'pointer' }}>🕸 スポイト</button>
-              <input type="color" value={customSkinColors?.[selectedPart] || sampledColors[selectedPart] || '#ffcccc'} onChange={(e) => handleColorChange(selectedPart, e.target.value)} style={{ width: '2rem', height: '2rem', borderRadius: '0.25rem', cursor: 'pointer', padding: 0, border: 'none' }} />
+
+          {/* 🎚️ トラッキング感度設定 */}
+          <div style={{ borderTop: '1px solid rgba(255,255,255,0.1)', paddingTop: '0.5rem', marginTop: '0.2rem' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.7rem', color: '#9ca3af', marginBottom: '0.2rem' }}>
+              <label>👄 {mouthControlSource === 'audio' ? 'マイクの口パク感度（高ほど開きやすい）' : '口開閉の感度'}: {sensitivity?.mouthOpen !== undefined ? sensitivity.mouthOpen.toFixed(2) : '0.10'}</label>
+              <span style={{ color: '#10b981' }}>{sensitivity?.mouthOpen >= 0.2 ? '低感度（開きにくい）' : '高感度（開きやすい）'}</span>
             </div>
+            <input 
+              type="range" 
+              min="0.02" 
+              max="0.4" 
+              step="0.01" 
+              value={sensitivity?.mouthOpen !== undefined ? sensitivity.mouthOpen : 0.10} 
+              onChange={(e) => {
+                const val = parseFloat(e.target.value);
+                setSensitivity({ ...(sensitivity || { eyeClose: 0.4, mouthOpen: 0.1 }), mouthOpen: val });
+              }} 
+              style={{ width: '100%' }} 
+            />
+            {mouthControlSource === 'audio' ? (
+              <div style={{ marginTop: '0.4rem', borderTop: '1px dotted rgba(255,255,255,0.1)', paddingTop: '0.4rem' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.7rem', color: '#9ca3af', marginBottom: '0.2rem' }}>
+                  <label>🎙️ マイク入力の倍率: {audioMultiplier.toFixed(1)}倍</label>
+                  <span style={{ color: '#10b981' }}>{audioMultiplier >= 8.0 ? '大声向け' : audioMultiplier <= 3.0 ? '小声向け' : '標準'}</span>
+                </div>
+                <input 
+                  type="range" 
+                  min="1.0" 
+                  max="15.0" 
+                  step="0.5" 
+                  value={audioMultiplier} 
+                  onChange={(e) => setAudioMultiplier(parseFloat(e.target.value))} 
+                  style={{ width: '100%' }} 
+                />
+              </div>
+            ) : (
+              <div style={{ fontSize: '0.55rem', color: '#64748b', marginTop: '2px', lineHeight: 1.3 }}>
+                ※口が意図せずパタパタ動いてしまう現象を抑えたい場合は、感度値を上げてみてください。
+              </div>
+            )}
           </div>
-          <div style={{ display: 'flex', gap: '0.75rem' }}>
-            <div style={{ flex: 1 }}><label style={{ fontSize: '0.625rem', color: '#9ca3af', display: 'block', marginBottom: '0.2rem' }}>幅</label><input type="range" min="0" max="500" value={avatarCoords[selectedPart]!.width * 1000} onChange={(e) => handleCoordChange(selectedPart, 'width', parseInt(e.target.value) / 1000)} style={{ width: '100%' }} /></div>
-            <div style={{ flex: 1 }}><label style={{ fontSize: '0.625rem', color: '#9ca3af', display: 'block', marginBottom: '0.2rem' }}>高さ</label><input type="range" min="0" max="500" value={avatarCoords[selectedPart]!.height * 1000} onChange={(e) => handleCoordChange(selectedPart, 'height', parseInt(e.target.value) / 1000)} style={{ width: '100%' }} /></div>
+
+          <div style={{ borderTop: '1px solid rgba(255,255,255,0.1)', paddingTop: '0.5rem', marginTop: '0.2rem' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.7rem', color: '#9ca3af', marginBottom: '0.2rem' }}>
+              <label>👁 まばたき感度: {sensitivity?.eyeClose !== undefined ? sensitivity.eyeClose.toFixed(2) : '0.40'}</label>
+              <span style={{ color: '#10b981' }}>{sensitivity?.eyeClose >= 0.5 ? '閉じにくい' : '閉じやすい'}</span>
+            </div>
+            <input 
+              type="range" 
+              min="0.1" 
+              max="0.9" 
+              step="0.05" 
+              value={sensitivity?.eyeClose !== undefined ? sensitivity.eyeClose : 0.40} 
+              onChange={(e) => {
+                const val = parseFloat(e.target.value);
+                setSensitivity({ ...(sensitivity || { eyeClose: 0.4, mouthOpen: 0.1 }), eyeClose: val });
+              }} 
+              style={{ width: '100%' }} 
+            />
           </div>
-          <div>
-            <label style={{ fontSize: '0.625rem', color: '#9ca3af', display: 'block', marginBottom: '0.2rem' }}>拡大縮小 ({(partScales[selectedPart] * 100).toFixed(0)}%)</label>
-            <input type="range" min="20" max="300" value={partScales[selectedPart] * 100} onChange={(e) => setPartScales(s => ({ ...s, [selectedPart]: parseInt(e.target.value) / 100 }))} style={{ width: '100%' }} />
+
+          {/* 📍 キャラ位置調整・リセット */}
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderTop: '1px solid rgba(255,255,255,0.1)', paddingTop: '0.5rem', marginTop: '0.2rem' }}>
+            <span style={{ fontSize: '0.75rem', color: '#9ca3af' }}>モデル位置</span>
+            <button
+              onClick={() => {
+                setModelOffset({ x: 0, y: 0 });
+                setModelScale(1.30);
+              }}
+              style={{
+                padding: '0.3rem 0.75rem',
+                borderRadius: '0.5rem',
+                border: 'none',
+                background: 'rgba(255,255,255,0.15)',
+                color: '#fff',
+                fontSize: '0.7rem',
+                fontWeight: 'bold',
+                cursor: 'pointer',
+                transition: 'all 0.2s',
+              }}
+              onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.25)'}
+              onMouseLeave={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.15)'}
+            >
+              🔄 位置と拡大をリセット
+            </button>
           </div>
 
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderTop: '1px solid rgba(255,255,255,0.1)', paddingTop: '0.5rem', marginTop: '0.2rem' }}>

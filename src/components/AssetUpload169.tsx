@@ -3,11 +3,14 @@ import { useNavigate } from 'react-router-dom';
 import { useAppContext } from '../store/AppContext';
 import { parse16by9AssetSheet } from '../utils/avatarHelper';
 import { analyze16by9AssetSheetWithGemini } from '../services/geminiService';
-import { Upload, CheckCircle2, Sparkles } from 'lucide-react';
+import { Upload, CheckCircle2, Sparkles, FolderOpen } from 'lucide-react';
 import PartPlacementEditor from './PartPlacementEditor';
+
+import { createSample16by9AssetSheetDataUrl } from '../utils/sampleAssetSheet';
 
 export const AssetUpload169: React.FC = () => {
   const { 
+    baseImage,
     geminiApiKey,
     setBaseImage, 
     setParsedAssetSheetParts, 
@@ -18,14 +21,65 @@ export const AssetUpload169: React.FC = () => {
     whiteThreshold,
     setWhiteThreshold,
     removeWhiteBg,
-    setRemoveWhiteBg
+    setRemoveWhiteBg,
+    setCustomSkinColors,
+    setSensitivity,
+    setCurrentProfileName,
+    profileList,
+    loadProfile,
+    deleteProfile
   } = useAppContext();
 
   const navigate = useNavigate();
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const jsonInputRef = useRef<HTMLInputElement>(null);
   const [isProcessing, setIsProcessing] = useState(false);
-  const [previewImage, setPreviewImage] = useState<string | null>(null);
+  const [previewImage, setPreviewImage] = useState<string | null>(
+    parsedAssetSheetParts?._originalSheetDataUrl || null
+  );
   const [statusMsg, setStatusMsg] = useState<string>('');
+
+  const handleJsonFileImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    
+    try {
+      const text = await file.text();
+      const data = JSON.parse(text);
+      if (!data.baseImage) {
+        alert('無効なキャラクター設定ファイルです。');
+        return;
+      }
+
+      setBaseImage(data.baseImage);
+      setOriginalGridImage(data.originalGridImage || null);
+      setAvatarCoords(data.avatarCoords || null);
+      setCustomSkinColors(data.customSkinColors || { leftEye: null, rightEye: null, mouth: null });
+      setSensitivity(data.sensitivity || { eyeClose: 0.4, mouthOpen: 0.1 });
+      setParsedAssetSheetParts(data.parsedAssetSheetParts || null);
+      if (data.psdLayers) setPsdLayers(data.psdLayers);
+
+      if (data.parsedAssetSheetParts) {
+        setPreviewImage(data.parsedAssetSheetParts._originalSheetDataUrl || data.baseImage);
+      } else {
+        setPreviewImage(data.baseImage);
+      }
+
+      let name = file.name.replace('vtuber_char_', '').replace('.json', '');
+      setCurrentProfileName(name);
+
+      setStatusMsg('✅ キャラクター設定ファイルを読み込みました！トラッキング画面へ遷移します...');
+      setTimeout(() => {
+        navigate('/main');
+      }, 800);
+    } catch (err: any) {
+      alert('ファイルの読み込みに失敗しました。');
+      console.error(err);
+    }
+    e.target.value = '';
+  };
+
+
 
   const processUploadedImageWithThreshold = (file: File, thresh: number) => {
     setIsProcessing(true);
@@ -167,84 +221,123 @@ export const AssetUpload169: React.FC = () => {
 
   const [vtuberDescription, setVtuberDescription] = useState<string>('');
 
-  const ASSET_SHEET_PROMPT = `A high-resolution VTuber asset sheet designed for Live2D animation, in a clean 16:9 layout on a transparent or plain white background.
+  const ASSET_SHEET_PROMPT = `A high-resolution, professional Live2D-ready VTuber asset sheet in a 16:9 widescreen layout on a clean white background.
 
-The canvas is divided vertically into two halves:
+CRITICAL LAYOUT SPECIFICATION:
+The canvas is divided visually into two equal halves. Do NOT draw any divider line. Position the character in the center of the left half. Position all facial parts inside the right half.
 
-LEFT HALF:
-A front-facing anime-style character bust (from chest up), with full hair, head, and body details.
-The face is mostly blank, but includes a simple, cleanly drawn nose (small anime-style nose).
-There are no eyes, no mouth, no eyebrows, only the nose is present.
-The face area is smooth and clean, designed as a base layer for facial parts.
+LEFT HALF (Base Model):
+- A front-facing anime-style character bust (chest up).
+- Center the character within the left half.
+- Leave a small, even margin on the left and right sides of the base model (approximately 5–8% of the left-half width). The character must never touch or extend beyond the edges of the left half.
+- The bottom edge of the clothing/chest MUST align perfectly with the bottom edge of the canvas, leaving ZERO bottom margin.
+- The face is a BLANK BASE MODEL containing ONLY:
+  - A small, clean anime-style nose.
+- Do NOT draw:
+  - Eyes
+  - Eyebrows
+  - Mouth
+- Hair, ears, head, neck, skin, clothing, accessories, and all other details must be fully rendered.
 
-RIGHT HALF:
-Organized expression parts for the same character, neatly arranged and clearly separated:
+RIGHT HALF (Expression Parts):
+Arrange each facial part neatly with generous spacing and no overlap.
 
-* Both eyes open (neutral expression)
-* Both eyes closed
-* Mouth open
-* Mouth neutral (closed, straight line)
+Include:
+- Open eyes WITH matching eyebrows attached.
+- Closed eyes WITH matching eyebrows attached.
+- Open mouth.
+- Closed mouth with a subtle, relaxed smile (slightly raised corners, no teeth).
 
-All parts must match perfectly in style, size, and alignment with the base face on the left.
-Use crisp anime-style linework, soft shading, and consistent lighting.
+GENERAL REQUIREMENTS:
+- The expression parts must perfectly match the base model in scale, style, perspective, lighting, shading, and colors.
+- Keep every element completely inside its respective half of the canvas.
+- No overlapping parts.
+- No duplicate parts.
+- No extra facial features.
+- No text.
+- No logos.
+- No watermarks.
+- No background decorations.
+- Pure white background.
+- Clean production-ready Live2D asset sheet.`;
 
-The character should have a modern VTuber aesthetic (clean, appealing, slightly stylized, suitable for streaming avatar use).
+  const OWN_CHAR_PROMPT = `A high-resolution Live2D-ready VTuber asset sheet based EXACTLY on the provided character design reference. Do not alter or reinterpret the character's style, clothes, hair, accessories, proportions, colors, materials, rendering style, or shading.
 
-Ensure precise alignment and spacing for easy rigging in Live2D.
-No background clutter, no text, no watermark.`;
+CRITICAL LAYOUT SPECIFICATION:
+The canvas must be split EXACTLY in half vertically at the 50% X-coordinate.
 
-  const OWN_CHAR_PROMPT = `Use the provided character image as the exact reference.
+LEFT HALF (0% to 50% width):
+- The exact same reference character, front-facing bust (chest up).
+- The bottom of the character's chest/clothes must touch the absolute bottom edge of the canvas with ZERO margin.
+- Preserve the original eyebrows and nose ONLY IF they exist in the reference image.
+- If the reference character has no visible eyebrows and/or no visible nose, do not create or invent them.
+- Do NOT include:
+  - Eyes
+  - Eyelashes
+  - Eye highlights
+  - Mouth
+  - Blush
+  - Any facial expression
+- Hair, head shape, ears, neck, clothing, accessories, colors, shading, and proportions must match the reference image exactly.
 
-Create a high-resolution VTuber asset sheet designed for Live2D animation in a clean 16:9 layout on a transparent or plain white background.
+RIGHT HALF (50% to 100% width):
+Arrange the facial parts cleanly with generous spacing:
+- Both eyes open
+- Both eyes closed
+- Mouth open
+- Mouth neutral (closed)
 
-IMPORTANT:
-Do not redesign, restyle, reinterpret, or alter the character.
-Preserve the exact hairstyle, hair color, face shape, eyes, clothing, accessories, proportions, linework, coloring, shading, and overall art style from the reference image.
-The output must be the exact same character, not a newly generated interpretation.
+The facial parts must perfectly match the character's original design, color, rendering style, linework, lighting, and scale so they can be placed directly onto the blank base without adjustment.
 
-The canvas is divided vertically into two halves.
+BACKGROUND:
+- Pure white or transparent.
+- No text.
+- No guides.
+- No labels.
+- No watermarks.
+- No decorative elements.
+- No background noise.
 
-LEFT HALF:
-A front-facing anime-style character bust (from chest up), using the exact same character from the reference.
-Keep the full hair, head, neck, clothing, and accessories unchanged.
-The face is mostly blank, but includes a simple, cleanly drawn anime-style nose.
-There are no eyes, no mouth, and no eyebrows.
-The face area is smooth and clean, designed as a base layer for Live2D facial parts.
-
-RIGHT HALF:
-Organized expression parts for the exact same character, neatly arranged in a 2×2 grid and clearly separated:
-
-• Top Left: Both eyes open (neutral expression)
-• Top Right: Both eyes closed
-• Bottom Left: Mouth open
-• Bottom Right: Mouth neutral (closed)
-
-All facial parts must match perfectly in style, size, proportions, and alignment with the base face on the left.
-The eyes must align perfectly with the empty eye area.
-The mouth must align perfectly with the empty mouth area.
-Maintain identical linework, coloring, shading, lighting, and proportions as the reference image.
-
-The character should remain identical to the reference image while being prepared as a professional Live2D asset sheet.
-
-Ensure precise alignment and spacing for easy rigging in Live2D.
-
-No background clutter.
-No text.
-No watermark.
-No additional parts.
-Only the specified layout.`;
+The asset sheet should be suitable for Live2D rigging with clean separation between the blank base and expression parts.`;
 
   const handleOpenChatGPTWithOwnChar = () => {
+    const textArea = document.createElement("textarea");
+    textArea.value = OWN_CHAR_PROMPT;
+    textArea.style.position = "fixed";
+    document.body.appendChild(textArea);
+    textArea.focus();
+    textArea.select();
+    try {
+      document.execCommand('copy');
+    } catch (err) {
+      console.error(err);
+    }
+    document.body.removeChild(textArea);
+
     const encodedPrompt = encodeURIComponent(OWN_CHAR_PROMPT);
-    window.open(`https://chatgpt.com/?q=${encodedPrompt}`, '_blank');
+    window.location.href = `https://chatgpt.com/?q=${encodedPrompt}`;
   };
 
   const handleOpenChatGPT = () => {
     const fullPrompt = vtuberDescription.trim()
       ? `${vtuberDescription.trim()}\n\n${ASSET_SHEET_PROMPT}`
       : ASSET_SHEET_PROMPT;
+    
+    const textArea = document.createElement("textarea");
+    textArea.value = fullPrompt;
+    textArea.style.position = "fixed";
+    document.body.appendChild(textArea);
+    textArea.focus();
+    textArea.select();
+    try {
+      document.execCommand('copy');
+    } catch (err) {
+      console.error(err);
+    }
+    document.body.removeChild(textArea);
+
     const encodedPrompt = encodeURIComponent(fullPrompt);
-    window.open(`https://chatgpt.com/?q=${encodedPrompt}`, '_blank');
+    window.location.href = `https://chatgpt.com/?q=${encodedPrompt}`;
   };
 
   return (
@@ -267,9 +360,12 @@ Only the specified layout.`;
             fontSize: '18px',
           }}>🤖</div>
           <div>
-            <h3 style={{ fontSize: '1.1rem', fontWeight: 700, color: '#f0fdf4', margin: 0 }}>
-              ChatGPT でアセット画像を生成
-            </h3>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+              <h3 style={{ fontSize: '1.1rem', fontWeight: 700, color: '#f0fdf4', margin: 0 }}>
+                ChatGPT でアセット画像を生成
+              </h3>
+              <span style={{ fontSize: '0.7rem', padding: '0.1rem 0.4rem', borderRadius: '6px', background: '#10b981', color: '#fff', fontWeight: 700 }}>v1.11.0 マイク音量連動口パク機能追加</span>
+            </div>
             <p style={{ fontSize: '0.78rem', color: '#86efac', margin: 0 }}>
               どんなVTuberにしたいか入力して、ワンクリックでChatGPTへ
             </p>
@@ -392,6 +488,183 @@ Only the specified layout.`;
         </div>
       </div>
 
+      {/* ── Browser-Native Saved Characters List ── */}
+      {profileList && profileList.length > 0 && (
+        <div style={{
+          borderRadius: '16px',
+          padding: '1.5rem',
+          background: 'linear-gradient(135deg, rgba(16, 185, 129, 0.12), rgba(4, 120, 87, 0.25))',
+          border: '1px solid rgba(16, 185, 129, 0.3)',
+          boxShadow: '0 8px 32px rgba(0,0,0,0.25)',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: '1rem',
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+            <div style={{
+              width: '36px', height: '36px', borderRadius: '10px',
+              background: 'linear-gradient(135deg, #10b981, #059669)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+            }}>
+              <CheckCircle2 size={20} color="#d1fae5" />
+            </div>
+            <div>
+              <h3 style={{ fontSize: '1.1rem', fontWeight: 700, color: '#d1fae5', margin: 0 }}>
+                保存済みのキャラクターから起動 (ブラウザ保存)
+              </h3>
+              <p style={{ fontSize: '0.78rem', color: '#a7f3d0', margin: 0 }}>
+                ブラウザに直接保存したキャラクター一覧から選んで開始できます
+              </p>
+            </div>
+          </div>
+
+          <div style={{
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '0.5rem',
+            maxHeight: '220px',
+            overflowY: 'auto',
+            paddingRight: '0.25rem',
+          }}>
+            {profileList.map((name) => (
+              <div 
+                key={name}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  padding: '0.75rem 1rem',
+                  borderRadius: '10px',
+                  background: 'rgba(15, 23, 42, 0.5)',
+                  border: '1px solid rgba(255, 255, 255, 0.1)',
+                  transition: 'all 0.2s',
+                }}
+              >
+                <span style={{ fontSize: '0.95rem', fontWeight: 700, color: '#f8fafc' }}>
+                  👤 {name}
+                </span>
+
+                <div style={{ display: 'flex', gap: '0.5rem' }}>
+                  <button
+                    onClick={async () => {
+                      setStatusMsg(`🚀 「${name}」をロード中...`);
+                      await loadProfile(name);
+                      setTimeout(() => {
+                        navigate('/main');
+                      }, 500);
+                    }}
+                    style={{
+                      padding: '0.4rem 0.9rem',
+                      borderRadius: '8px',
+                      background: 'linear-gradient(135deg, #10b981, #059669)',
+                      color: 'white',
+                      fontSize: '0.8rem',
+                      fontWeight: 700,
+                      border: 'none',
+                      cursor: 'pointer',
+                      boxShadow: '0 2px 8px rgba(16, 185, 129, 0.3)',
+                    }}
+                  >
+                    選択して開始
+                  </button>
+
+                  <button
+                    onClick={async (e) => {
+                      e.stopPropagation();
+                      if (confirm(`「${name}」の設定を削除しますか？`)) {
+                        await deleteProfile(name);
+                      }
+                    }}
+                    style={{
+                      padding: '0.4rem',
+                      borderRadius: '8px',
+                      background: 'rgba(239, 68, 68, 0.15)',
+                      border: '1px solid rgba(239, 68, 68, 0.4)',
+                      color: '#ef4444',
+                      fontSize: '0.8rem',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                    }}
+                    title="削除"
+                  >
+                    🗑️
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* ── JSON Configuration Load Section ── */}
+      <div style={{
+        borderRadius: '16px',
+        padding: '1.5rem',
+        background: 'linear-gradient(135deg, rgba(99, 102, 241, 0.12), rgba(67, 56, 202, 0.25))',
+        border: '1px solid rgba(99, 102, 241, 0.3)',
+        boxShadow: '0 8px 32px rgba(0,0,0,0.25)',
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', marginBottom: '0.5rem' }}>
+          <div style={{
+            width: '36px', height: '36px', borderRadius: '10px',
+            background: 'linear-gradient(135deg, #4f46e5, #4338ca)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+          }}>
+            <FolderOpen size={20} color="#e0e7ff" />
+          </div>
+          <div>
+            <h3 style={{ fontSize: '1.1rem', fontWeight: 700, color: '#e0e7ff', margin: 0 }}>
+              保存したキャラクターをロード (.json)
+            </h3>
+            <p style={{ fontSize: '0.78rem', color: '#c7d2fe', margin: 0 }}>
+              以前保存したキャラ設定ファイルを選択して、一瞬でトラッキングを再開
+            </p>
+          </div>
+        </div>
+
+        <input 
+          type="file" 
+          ref={jsonInputRef}
+          onChange={handleJsonFileImport}
+          accept=".json"
+          style={{ display: 'none' }}
+        />
+
+        <button
+          onClick={() => jsonInputRef.current?.click()}
+          style={{
+            marginTop: '0.75rem',
+            width: '100%',
+            padding: '0.85rem 1.5rem',
+            borderRadius: '12px',
+            border: 'none',
+            background: 'linear-gradient(135deg, #4f46e5, #3730a3)',
+            color: '#ffffff',
+            fontSize: '1rem',
+            fontWeight: 700,
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: '0.6rem',
+            transition: 'all 0.2s ease',
+            boxShadow: '0 4px 20px rgba(79, 70, 229, 0.35)',
+          }}
+          onMouseEnter={(e) => {
+            e.currentTarget.style.transform = 'translateY(-1px)';
+            e.currentTarget.style.boxShadow = '0 6px 28px rgba(79, 70, 229, 0.5)';
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.transform = 'translateY(0)';
+            e.currentTarget.style.boxShadow = '0 4px 20px rgba(79, 70, 229, 0.35)';
+          }}
+        >
+          📂 設定ファイルを読み込む
+        </button>
+      </div>
+
       {/* ── Divider ── */}
       <div style={{
         display: 'flex', alignItems: 'center', gap: '1rem',
@@ -464,6 +737,8 @@ Only the specified layout.`;
         </div>
       </div>
 
+
+
       {statusMsg && (
         <div style={{ 
           padding: '0.85rem 1rem', 
@@ -479,6 +754,31 @@ Only the specified layout.`;
           <CheckCircle2 size={18} />
           <span>{statusMsg}</span>
         </div>
+      )}
+
+      {baseImage && (
+        <button
+          onClick={() => navigate('/main')}
+          style={{
+            width: '100%',
+            padding: '0.9rem 1rem',
+            borderRadius: '12px',
+            background: 'linear-gradient(135deg, #10b981, #059669)',
+            color: '#fff',
+            fontWeight: 700,
+            fontSize: '1.05rem',
+            border: 'none',
+            cursor: 'pointer',
+            boxShadow: '0 4px 16px rgba(16,185,129,0.4)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: '0.5rem',
+            marginTop: '0.5rem'
+          }}
+        >
+          🎬 WebCam トラッキング画面を開始する →
+        </button>
       )}
 
       {/* Interactive Part Placement Editor */}

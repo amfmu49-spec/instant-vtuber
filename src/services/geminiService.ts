@@ -286,7 +286,7 @@ export const generateVTuberAssetSheetPrompt = (customDetails: string): string =>
 The canvas is divided vertically into two halves:
 
 LEFT HALF:
-A front-facing anime-style character bust (from chest up), with full hair, head, and body details, but with a completely blank face (no eyes, no mouth, no eyebrows). The face area is smooth and clean, designed as a base layer for facial parts.
+A front-facing anime-style character bust (from chest up), with full hair, head, and body details. The face MUST contain a clear cute anime nose (a small delicate nose stroke/dot), but NO eyes, NO mouth, and NO eyebrows. The face is a base layer with a nose drawn on it, specifically prepared for facial parts to be placed over.
 
 RIGHT HALF:
 Organized expression parts for the same character, neatly arranged and clearly separated:
@@ -297,7 +297,6 @@ Organized expression parts for the same character, neatly arranged and clearly s
 
 All parts must match perfectly in style, size, and alignment with the base face on the left.
 Use crisp anime-style linework, soft shading, and consistent lighting.
-
 The character should have a modern VTuber aesthetic (clean, appealing, slightly stylized, suitable for streaming avatar use).
 
 Ensure precise alignment and spacing for easy rigging in Live2D.
@@ -391,13 +390,13 @@ export const generateVTuberAssetSheet = async (
 };
 
 export const generateFree16by9AssetSheet = async (customPrompt: string): Promise<string> => {
-  const qualityBoosters = "masterpiece, best quality, ultra-detailed anime illustration, 8k resolution, official art, trending on pixiv, gorgeous anime character design, crisp fine lineart, soft shading, vivid colors, high quality anime face and eyes";
+  const qualityBoosters = "masterpiece, best quality, ultra-detailed anime illustration, 8k resolution, official art, trending on pixiv, gorgeous anime character design, crisp fine lineart, soft shading, vivid colors, high quality anime face with small cute nose";
   
   const cleanPrompt = customPrompt
     .replace(/\s+/g, ' ')
     .trim();
   
-  const fullAnimePrompt = `16:9 VTuber asset sheet, left half blank face anime bust, right half 4 organized expression parts (eyes open, eyes closed, mouth open, mouth neutral), ${cleanPrompt}, ${qualityBoosters}`;
+  const fullAnimePrompt = `16:9 VTuber asset sheet, left half blank face with cute anime nose bust, right half 4 organized expression parts (eyes open, eyes closed, mouth open, mouth neutral), ${cleanPrompt}, ${qualityBoosters}`;
 
   const encodedPrompt = encodeURIComponent(fullAnimePrompt);
   const seed = Math.floor(Math.random() * 1000000);

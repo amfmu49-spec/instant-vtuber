@@ -551,9 +551,8 @@ const splitEyeQuadrantIntoLeftAndRight = (
 
 export const parse16by9AssetSheet = async (img: HTMLImageElement): Promise<Parsed16by9AssetSheet> => {
   const yieldToMain = () => new Promise(resolve => setTimeout(resolve, 5));
-  const fullWidth = img.width;
-  const fullHeight = img.height;
-
+  const fullWidth = img.naturalWidth || img.width;
+  const fullHeight = img.naturalHeight || img.height;
   const halfWidth = Math.floor(fullWidth / 2);
 
   // 1. Base Bust Canvas (0 -> 50% X)
