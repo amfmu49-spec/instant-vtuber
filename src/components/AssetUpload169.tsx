@@ -364,7 +364,7 @@ The asset sheet should be suitable for Live2D rigging with clean separation betw
               <h3 style={{ fontSize: '1.1rem', fontWeight: 700, color: '#f0fdf4', margin: 0 }}>
                 ChatGPT でアセット画像を生成
               </h3>
-              <span style={{ fontSize: '0.7rem', padding: '0.1rem 0.4rem', borderRadius: '6px', background: '#10b981', color: '#fff', fontWeight: 700 }}>v1.11.0 マイク音量連動口パク機能追加</span>
+              <span style={{ fontSize: '0.7rem', padding: '0.1rem 0.4rem', borderRadius: '6px', background: '#10b981', color: '#fff', fontWeight: 700 }}>v1.12.0 AI素体顔の鼻描画プロンプト対応</span>
             </div>
             <p style={{ fontSize: '0.78rem', color: '#86efac', margin: 0 }}>
               どんなVTuberにしたいか入力して、ワンクリックでChatGPTへ
